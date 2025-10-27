@@ -153,7 +153,7 @@ export function Customers() {
               />
             </div>
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => (window.location.href = '/customers/create')}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <PlusIcon className="w-5 h-5" />

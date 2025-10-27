@@ -1,13 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeftIcon, PlusIcon, XIcon, BuildingIcon, UserIcon, FileTextIcon } from 'lucide-react'
+import { ArrowLeftIcon, PlusIcon, XIcon, BuildingIcon, UserIcon, MapPinIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { AddressAutocomplete } from '../components/AddressAutocomplete'
-
-interface LeadSource {
-  id: string
-  name: string
-}
 
 interface UserProfile {
   id: string
@@ -24,119 +19,86 @@ interface Contact {
   email: string
 }
 
-interface Project {
+interface Property {
   id: string
-  type: string
+  name: string
   address: string
   city: string
   state: string
   zip: string
-  unit_count: string
-  work_type: string
+  property_type: string
+  sqft: string
   notes: string
 }
 
-export default function LeadCreate() {
+interface CustomerNote {
+  timestamp: string
+  note: string
+}
+
+export default function CustomerCreate() {
   const navigate = useNavigate()
-  const [leadSources, setLeadSources] = useState<LeadSource[]>([])
   const [users, setUsers] = useState<UserProfile[]>([])
-  const [serviceCategories, setServiceCategories] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState<'company' | 'contacts' | 'projects' | 'notes'>(
+  const [activeTab, setActiveTab] = useState<'company' | 'contacts' | 'properties' | 'notes'>(
     'company'
   )
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set(['1']))
 
   // Company Information
   const [companyData, setCompanyData] = useState({
     name: '',
+    phone: '',
+    email: '',
+    website: '',
     address: '',
     city: '',
     state: '',
     zip: '',
-    phone: '',
-    email: '',
-    website: '',
   })
 
-  // Contact Information (array of contacts)
+  // Contacts
   const [contacts, setContacts] = useState<Contact[]>([
     { id: '1', name: '', phone: '', cell: '', email: '' },
   ])
 
-  // Projects (array of projects)
-  const [projects, setProjects] = useState<Project[]>([
+  // Properties
+  const [properties, setProperties] = useState<Property[]>([
     {
       id: '1',
-      type: '',
+      name: '',
       address: '',
       city: '',
       state: '',
       zip: '',
-      unit_count: '',
-      work_type: '',
+      property_type: '',
+      sqft: '',
       notes: '',
     },
   ])
+  const [expandedProperties, setExpandedProperties] = useState<Set<string>>(new Set())
 
-  // Lead Management
-  const [leadData, setLeadData] = useState({
-    notes: '',
-    lead_source_id: '',
+  // Customer Management
+  const [customerData, setCustomerData] = useState({
+    status: 'active',
     assigned_to: '',
-    next_activity_date: '',
   })
 
-  // Lead Notes (time-stamped)
-  const [leadNotes, setLeadNotes] = useState<Array<{ timestamp: string; note: string }>>([])
-  const [newNote, setNewNote] = useState('')
+  const [notes, setNotes] = useState('')
+  const [customerNotes, setCustomerNotes] = useState<CustomerNote[]>([])
 
   useEffect(() => {
-    fetchLeadSources()
     fetchUsers()
-    fetchServiceCategories()
   }, [])
-
-  const fetchLeadSources = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('lead_sources')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name')
-
-      if (error) throw error
-      setLeadSources(data || [])
-    } catch (error) {
-      console.error('Error fetching lead sources:', error)
-    }
-  }
 
   const fetchUsers = async () => {
     try {
       const { data, error } = await supabase
-        .from('user_profiles')
+        .from('profiles')
         .select('id, first_name, last_name, email')
-        .order('first_name')
-
       if (error) throw error
       setUsers(data || [])
     } catch (error) {
       console.error('Error fetching users:', error)
-    }
-  }
-
-  const fetchServiceCategories = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('service_categories')
-        .select('id, name')
-        .order('name')
-
-      if (error) throw error
-      setServiceCategories(data || [])
-    } catch (error) {
-      console.error('Error fetching service categories:', error)
     }
   }
 
@@ -155,39 +117,36 @@ export default function LeadCreate() {
     setContacts(contacts.filter((c) => c.id !== id))
   }
 
-  const updateContact = (id: string, field: keyof Contact, value: string) => {
+  const updateContact = (id: string, field: string, value: string) => {
     setContacts(contacts.map((c) => (c.id === id ? { ...c, [field]: value } : c)))
   }
 
-  const addProject = () => {
-    const newProject: Project = {
+  const addProperty = () => {
+    const newProperty: Property = {
       id: Date.now().toString(),
-      type: '',
+      name: '',
       address: '',
       city: '',
       state: '',
       zip: '',
-      unit_count: '',
-      work_type: '',
+      property_type: '',
+      sqft: '',
       notes: '',
     }
-    setProjects([...projects, newProject])
+    setProperties([...properties, newProperty])
   }
 
-  const removeProject = (id: string) => {
-    setProjects(projects.filter((p) => p.id !== id))
+  const removeProperty = (id: string) => {
+    setProperties(properties.filter((p) => p.id !== id))
   }
 
-  const updateProject = (id: string, field: keyof Project, value: string) => {
-    setProjects(projects.map((p) => (p.id === id ? { ...p, [field]: value } : p)))
+  const updateProperty = (id: string, field: string, value: string) => {
+    setProperties(properties.map((p) => (p.id === id ? { ...p, [field]: value } : p)))
   }
 
-  const updateProjectAddress = (
-    id: string,
-    addressData: { address: string; city: string; state: string; zip: string }
-  ) => {
-    setProjects(
-      projects.map((p) =>
+  const updatePropertyAddress = (id: string, addressData: any) => {
+    setProperties(
+      properties.map((p) =>
         p.id === id
           ? {
               ...p,
@@ -202,15 +161,28 @@ export default function LeadCreate() {
   }
 
   const addNote = () => {
-    if (newNote.trim()) {
-      setLeadNotes([...leadNotes, { timestamp: new Date().toISOString(), note: newNote.trim() }])
-      setNewNote('')
+    if (notes.trim()) {
+      const newNote: CustomerNote = {
+        timestamp: new Date().toISOString(),
+        note: notes.trim(),
+      }
+      setCustomerNotes([newNote, ...customerNotes])
+      setNotes('')
     }
   }
 
   const removeNote = (timestamp: string) => {
-    setLeadNotes(leadNotes.filter((n) => n.timestamp !== timestamp))
+    setCustomerNotes(customerNotes.filter((n) => n.timestamp !== timestamp))
   }
+
+  const propertyTypes = [
+    'Residential Building',
+    'Office Building',
+    'Other Building',
+    'Single Apartment',
+    'Single Office Space',
+    'Other Space',
+  ]
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -220,56 +192,60 @@ export default function LeadCreate() {
       // Get primary contact if exists
       const primaryContact = contacts[0] || null
 
-      const { error } = await supabase.from('leads').insert({
-        // Company Information
-        company_name: companyData.name || null,
-        company_address: companyData.address || null,
-        company_city: companyData.city || null,
-        company_state: companyData.state || null,
-        company_zip: companyData.zip || null,
-        company_phone: companyData.phone || null,
-        company_email: companyData.email || null,
-        company_website: companyData.website || null,
+      // Create customer
+      const { data: customer, error: customerError } = await supabase
+        .from('customers')
+        .insert([
+          {
+            company_name: companyData.name || null,
+            contact_first_name: primaryContact?.name.split(' ')[0] || '',
+            contact_last_name: primaryContact?.name.split(' ').slice(1).join(' ') || '',
+            phone: companyData.phone || null,
+            email: companyData.email || null,
+            address: companyData.address || null,
+            city: companyData.city || null,
+            state: companyData.state || null,
+            zip_code: companyData.zip || null,
+            is_active: customerData.status === 'active',
+          },
+        ])
+        .select()
+        .single()
 
-        // Contact Information (primary contact in legacy fields)
-        contact_first_name: primaryContact?.name || '',
-        contact_last_name: '',
-        phone: primaryContact?.phone || null,
-        email: primaryContact?.email || null,
+      if (customerError) throw customerError
 
-        // New Structured Data Fields
-        contacts: contacts.length > 0 && contacts[0].name ? contacts : [],
-        projects: projects.length > 0 && projects[0].type ? projects : [],
-        lead_notes: leadNotes.length > 0 ? leadNotes : [],
+      // Add properties if any
+      if (properties.length > 0 && properties[0].name) {
+        const propertiesData = properties
+          .filter((p) => p.name) // Only add properties with names
+          .map((p) => ({
+            customer_id: customer.id,
+            name: p.name,
+            address: p.address || null,
+            city: p.city || null,
+            state: p.state || null,
+            zip_code: p.zip || null,
+            property_type: p.property_type || null,
+            sqft: p.sqft ? parseInt(p.sqft) : null,
+          }))
 
-        // Lead Management
-        lead_source_id: leadData.lead_source_id || null,
-        assigned_to: leadData.assigned_to || null,
-        next_activity_date: leadData.next_activity_date || null,
-        stage: 'new' as const,
-        priority: 'medium' as const,
-      })
+        if (propertiesData.length > 0) {
+          const { error: propertiesError } = await supabase
+            .from('properties')
+            .insert(propertiesData)
+          if (propertiesError) throw propertiesError
+        }
+      }
 
-      if (error) throw error
-
-      alert('Lead created successfully!')
-      navigate('/leads')
+      alert('Customer created successfully!')
+      navigate('/customers')
     } catch (error) {
-      console.error('Error creating lead:', error)
-      alert('Error creating lead: ' + (error as any).message)
+      console.error('Error creating customer:', error)
+      alert('Error creating customer: ' + (error as any).message)
     } finally {
       setLoading(false)
     }
   }
-
-  const projectTypes = [
-    'Residential Building',
-    'Office Building',
-    'Other Building',
-    'Single Apartment',
-    'Single Office Space',
-    'Other Space',
-  ]
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -277,13 +253,13 @@ export default function LeadCreate() {
         {/* Header */}
         <div className="mb-6">
           <button
-            onClick={() => navigate('/leads')}
+            onClick={() => navigate('/customers')}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
           >
             <ArrowLeftIcon className="w-5 h-5" />
-            <span>Back to Leads</span>
+            <span>Back to Customers</span>
           </button>
-          <h1 className="text-3xl font-bold text-gray-900">Add New Lead</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Create New Customer</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -293,63 +269,50 @@ export default function LeadCreate() {
               <button
                 type="button"
                 onClick={() => setActiveTab('company')}
-                className={`flex-1 py-4 px-4 text-center font-medium transition-colors ${
+                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
                   activeTab === 'company'
-                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    ? 'border-b-2 border-blue-600 text-blue-600'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <div className="flex items-center justify-center gap-2">
-                  <BuildingIcon className="w-5 h-5" />
-                  Company
-                </div>
+                Company
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('contacts')}
-                className={`flex-1 py-4 px-4 text-center font-medium transition-colors ${
+                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
                   activeTab === 'contacts'
-                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    ? 'border-b-2 border-blue-600 text-blue-600'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <div className="flex items-center justify-center gap-2">
-                  <UserIcon className="w-5 h-5" />
-                  Contacts
-                </div>
+                Contacts
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab('projects')}
-                className={`flex-1 py-4 px-4 text-center font-medium transition-colors ${
-                  activeTab === 'projects'
-                    ? 'text-blue-600 border-b-2 border-blue-600'
+                onClick={() => setActiveTab('properties')}
+                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+                  activeTab === 'properties'
+                    ? 'border-b-2 border-blue-600 text-blue-600'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <div className="flex items-center justify-center gap-2">
-                  <FileTextIcon className="w-5 h-5" />
-                  Projects
-                </div>
+                Properties
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('notes')}
-                className={`flex-1 py-4 px-4 text-center font-medium transition-colors ${
+                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
                   activeTab === 'notes'
-                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    ? 'border-b-2 border-blue-600 text-blue-600'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <div className="flex items-center justify-center gap-2">
-                  <FileTextIcon className="w-5 h-5" />
-                  Notes & Activity
-                </div>
+                Notes & Management
               </button>
             </div>
-
-            {/* Tab Content */}
             <div className="p-6">
+              {/* Company Tab */}
               {activeTab === 'company' && (
                 <div className="bg-white rounded-lg border border-gray-200 p-6">
                   <div className="flex items-center gap-2 mb-6">
@@ -359,10 +322,11 @@ export default function LeadCreate() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Company Name
+                        Company Name *
                       </label>
                       <input
                         type="text"
+                        required
                         value={companyData.name}
                         onChange={(e) => setCompanyData({ ...companyData, name: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -471,11 +435,14 @@ export default function LeadCreate() {
                 </div>
               )}
 
+              {/* Contacts Tab */}
               {activeTab === 'contacts' && (
                 <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <div className="flex items-center gap-2 mb-6">
-                    <UserIcon className="w-6 h-6 text-blue-600" />
-                    <h2 className="text-xl font-semibold text-gray-900">Contact Information</h2>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <UserIcon className="w-6 h-6 text-blue-600" />
+                      <h2 className="text-xl font-semibold text-gray-900">Contact Information</h2>
+                    </div>
                   </div>
                   <div className="space-y-4">
                     {contacts.map((contact, index) => (
@@ -573,121 +540,104 @@ export default function LeadCreate() {
                         </div>
                       </div>
                     ))}
+                    <button
+                      type="button"
+                      onClick={addContact}
+                      className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <PlusIcon className="w-5 h-5" />
+                      Add Contact
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={addContact}
-                    className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                  >
-                    <PlusIcon className="w-5 h-5" />
-                    Add Contact
-                  </button>
                 </div>
               )}
 
-              {activeTab === 'projects' && (
+              {/* Properties Tab */}
+              {activeTab === 'properties' && (
                 <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
-                      <FileTextIcon className="w-6 h-6 text-blue-600" />
-                      <h2 className="text-xl font-semibold text-gray-900">Potential Projects</h2>
+                      <MapPinIcon className="w-6 h-6 text-blue-600" />
+                      <h2 className="text-xl font-semibold text-gray-900">Properties</h2>
                     </div>
                   </div>
                   <div className="space-y-4">
-                    {projects.map((project, index) => (
-                      <div key={project.id} className="border border-gray-200 rounded-lg">
+                    {properties.map((property, index) => (
+                      <div key={property.id} className="border border-gray-200 rounded-lg">
                         <button
                           type="button"
                           onClick={() => {
-                            const expanded = new Set(expandedProjects)
-                            if (expanded.has(project.id)) {
-                              expanded.delete(project.id)
-                            } else {
-                              expanded.add(project.id)
-                            }
-                            setExpandedProjects(expanded)
+                            setExpandedProperties(
+                              new Set(
+                                expandedProperties.has(property.id)
+                                  ? Array.from(expandedProperties).filter(
+                                      (id) => id !== property.id
+                                    )
+                                  : [...Array.from(expandedProperties), property.id]
+                              )
+                            )
                           }}
                           className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
                         >
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={`transform transition-transform ${
-                                expandedProjects.has(project.id) ? 'rotate-180' : ''
-                              }`}
-                            >
-                              ▼
+                          <div className="flex items-center gap-3 flex-1">
+                            <span className="text-lg font-medium text-gray-900">
+                              Property {index + 1}
                             </span>
-                            <h3 className="text-lg font-medium text-gray-900">
-                              Project {index + 1}
-                            </h3>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {project.address && (
-                              <span className="text-sm text-gray-600">{project.address}</span>
-                            )}
-                            {projects.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  removeProject(project.id)
-                                }}
-                                className="p-1 hover:bg-red-50 rounded-lg transition-colors"
-                              >
-                                <XIcon className="w-5 h-5 text-red-600" />
-                              </button>
-                            )}
+                            <span className="text-sm text-gray-600">
+                              {property.name || 'No name'}
+                            </span>
                           </div>
                         </button>
-                        {expandedProjects.has(project.id) && (
+                        {expandedProperties.has(property.id) && (
                           <div className="border-t border-gray-200 p-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Property Name
+                                </label>
+                                <input
+                                  type="text"
+                                  value={property.name}
+                                  onChange={(e) =>
+                                    updateProperty(property.id, 'name', e.target.value)
+                                  }
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                  placeholder="Building A, Office Suite, etc."
+                                />
+                              </div>
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                   Type
                                 </label>
                                 <select
-                                  value={project.type}
+                                  value={property.property_type}
                                   onChange={(e) =>
-                                    updateProject(project.id, 'type', e.target.value)
+                                    updateProperty(property.id, 'property_type', e.target.value)
                                   }
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 >
                                   <option value="">Select Type</option>
-                                  {projectTypes.map((type) => (
+                                  {propertyTypes.map((type) => (
                                     <option key={type} value={type}>
                                       {type}
                                     </option>
                                   ))}
                                 </select>
                               </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Unit Count
-                                </label>
-                                <input
-                                  type="number"
-                                  value={project.unit_count}
-                                  onChange={(e) =>
-                                    updateProject(project.id, 'unit_count', e.target.value)
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                />
-                              </div>
                               <div className="md:col-span-2">
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                   Address
                                 </label>
                                 <AddressAutocomplete
-                                  key={`project-address-${project.id}`}
-                                  value={project.address}
+                                  key={`property-address-${property.id}`}
+                                  value={property.address}
                                   onChange={(address) =>
-                                    updateProject(project.id, 'address', address)
+                                    updateProperty(property.id, 'address', address)
                                   }
                                   onAddressSelect={(addressData) =>
-                                    updateProjectAddress(project.id, addressData)
+                                    updatePropertyAddress(property.id, addressData)
                                   }
-                                  placeholder="Start typing project address..."
+                                  placeholder="Start typing property address..."
                                 />
                               </div>
                               <div>
@@ -696,9 +646,9 @@ export default function LeadCreate() {
                                 </label>
                                 <input
                                   type="text"
-                                  value={project.city}
+                                  value={property.city}
                                   onChange={(e) =>
-                                    updateProject(project.id, 'city', e.target.value)
+                                    updateProperty(property.id, 'city', e.target.value)
                                   }
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="City"
@@ -710,9 +660,9 @@ export default function LeadCreate() {
                                 </label>
                                 <input
                                   type="text"
-                                  value={project.state}
+                                  value={property.state}
                                   onChange={(e) =>
-                                    updateProject(project.id, 'state', e.target.value)
+                                    updateProperty(property.id, 'state', e.target.value)
                                   }
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="NY"
@@ -725,84 +675,90 @@ export default function LeadCreate() {
                                 </label>
                                 <input
                                   type="text"
-                                  value={project.zip}
-                                  onChange={(e) => updateProject(project.id, 'zip', e.target.value)}
+                                  value={property.zip}
+                                  onChange={(e) =>
+                                    updateProperty(property.id, 'zip', e.target.value)
+                                  }
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="10001"
                                 />
                               </div>
-                              <div className="md:col-span-2">
+                              <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Work Type
+                                  Square Footage
                                 </label>
-                                <select
-                                  value={project.work_type}
+                                <input
+                                  type="number"
+                                  value={property.sqft}
                                   onChange={(e) =>
-                                    updateProject(project.id, 'work_type', e.target.value)
+                                    updateProperty(property.id, 'sqft', e.target.value)
                                   }
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                >
-                                  <option value="">Select Work Type</option>
-                                  {serviceCategories.map((category) => (
-                                    <option key={category.id} value={category.id}>
-                                      {category.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                  placeholder="0"
+                                />
                               </div>
                               <div className="md:col-span-2">
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Project Notes
+                                  Notes
                                 </label>
                                 <textarea
-                                  value={project.notes}
+                                  value={property.notes}
                                   onChange={(e) =>
-                                    updateProject(project.id, 'notes', e.target.value)
+                                    updateProperty(property.id, 'notes', e.target.value)
                                   }
                                   rows={3}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                  placeholder="Any additional notes about this property..."
                                 />
                               </div>
+                              {properties.length > 1 && (
+                                <div className="md:col-span-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => removeProperty(property.id)}
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                                  >
+                                    <XIcon className="w-5 h-5" />
+                                    Remove Property
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
                       </div>
                     ))}
+                    <button
+                      type="button"
+                      onClick={addProperty}
+                      className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <PlusIcon className="w-5 h-5" />
+                      Add Property
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={addProject}
-                    className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                  >
-                    <PlusIcon className="w-5 h-5" />
-                    Add Project
-                  </button>
                 </div>
               )}
 
+              {/* Notes & Management Tab */}
               {activeTab === 'notes' && (
                 <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
-                  {/* Lead Management Section */}
-                  <div className="bg-white rounded-lg border border-gray-200 p-6">
-                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Lead Management</h2>
+                  <div>
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Customer Status</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Lead Source
+                          Status
                         </label>
                         <select
-                          value={leadData.lead_source_id}
+                          value={customerData.status}
                           onChange={(e) =>
-                            setLeadData({ ...leadData, lead_source_id: e.target.value })
+                            setCustomerData({ ...customerData, status: e.target.value })
                           }
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
-                          <option value="">Select Source</option>
-                          {leadSources.map((source) => (
-                            <option key={source.id} value={source.id}>
-                              {source.name}
-                            </option>
-                          ))}
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
                         </select>
                       </div>
                       <div>
@@ -810,9 +766,9 @@ export default function LeadCreate() {
                           Assigned To
                         </label>
                         <select
-                          value={leadData.assigned_to}
+                          value={customerData.assigned_to}
                           onChange={(e) =>
-                            setLeadData({ ...leadData, assigned_to: e.target.value })
+                            setCustomerData({ ...customerData, assigned_to: e.target.value })
                           }
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
@@ -824,30 +780,15 @@ export default function LeadCreate() {
                           ))}
                         </select>
                       </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Date for Next Activity *
-                        </label>
-                        <input
-                          type="date"
-                          required
-                          value={leadData.next_activity_date}
-                          onChange={(e) =>
-                            setLeadData({ ...leadData, next_activity_date: e.target.value })
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
                     </div>
                   </div>
 
-                  {/* Lead Notes Section */}
                   <div>
-                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Lead Notes</h2>
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Customer Notes</h2>
                     <div className="flex gap-2 mb-4">
                       <textarea
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && e.ctrlKey) {
                             addNote()
@@ -866,30 +807,27 @@ export default function LeadCreate() {
                       </button>
                     </div>
                     <div className="space-y-3">
-                      {leadNotes.length > 0 ? (
-                        leadNotes
-                          .slice()
-                          .reverse()
-                          .map((note) => (
-                            <div
-                              key={note.timestamp}
-                              className="flex gap-3 bg-gray-50 rounded-lg p-3"
-                            >
-                              <div className="flex-1">
-                                <p className="text-sm text-gray-700">{note.note}</p>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  {new Date(note.timestamp).toLocaleString()}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => removeNote(note.timestamp)}
-                                className="p-1 hover:bg-red-50 rounded transition-colors"
-                              >
-                                <XIcon className="w-4 h-4 text-red-600" />
-                              </button>
+                      {customerNotes.length > 0 ? (
+                        customerNotes.map((note) => (
+                          <div
+                            key={note.timestamp}
+                            className="flex gap-3 bg-gray-50 rounded-lg p-3"
+                          >
+                            <div className="flex-1">
+                              <p className="text-sm text-gray-700">{note.note}</p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {new Date(note.timestamp).toLocaleString()}
+                              </p>
                             </div>
-                          ))
+                            <button
+                              type="button"
+                              onClick={() => removeNote(note.timestamp)}
+                              className="p-1 hover:bg-red-50 rounded transition-colors"
+                            >
+                              <XIcon className="w-4 h-4 text-red-600" />
+                            </button>
+                          </div>
+                        ))
                       ) : (
                         <p className="text-sm text-gray-500 italic">No notes yet</p>
                       )}
@@ -904,7 +842,7 @@ export default function LeadCreate() {
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => navigate('/leads')}
+              onClick={() => navigate('/customers')}
               className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
             >
               Cancel
@@ -915,7 +853,7 @@ export default function LeadCreate() {
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
               <PlusIcon className="w-5 h-5" />
-              {loading ? 'Creating...' : 'Create Lead'}
+              {loading ? 'Creating...' : 'Create Customer'}
             </button>
           </div>
         </form>

@@ -880,46 +880,52 @@ export default function LeadEdit() {
                   {/* Lead Notes Section */}
                   <div>
                     <h2 className="text-xl font-semibold text-gray-900 mb-4">Lead Notes</h2>
+                    <div className="flex gap-2 mb-4">
+                      <textarea
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && e.ctrlKey) {
+                            addNote()
+                          }
+                        }}
+                        rows={3}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Add a note... (Ctrl+Enter to submit)"
+                      />
+                      <button
+                        type="button"
+                        onClick={addNote}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors self-start"
+                      >
+                        Add Note
+                      </button>
+                    </div>
                     <div className="space-y-3">
-                      {leadNotes
-                        .slice()
-                        .reverse()
-                        .map((note) => (
-                          <div
-                            key={note.timestamp}
-                            className="flex gap-3 bg-gray-50 rounded-lg p-3"
-                          >
-                            <div className="flex-1">
-                              <p className="text-sm text-gray-700">{note.note}</p>
-                              <p className="text-xs text-gray-500 mt-1">
-                                {new Date(note.timestamp).toLocaleString()}
-                              </p>
+                      {leadNotes.length > 0 ? (
+                        leadNotes
+                          .slice()
+                          .reverse()
+                          .map((note) => (
+                            <div key={note.timestamp} className="flex gap-3 bg-gray-50 rounded-lg p-3">
+                              <div className="flex-1">
+                                <p className="text-sm text-gray-700">{note.note}</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {new Date(note.timestamp).toLocaleString()}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeNote(note.timestamp)}
+                                className="p-1 hover:bg-red-50 rounded transition-colors"
+                              >
+                                <XIcon className="w-4 h-4 text-red-600" />
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => removeNote(note.timestamp)}
-                              className="p-1 hover:bg-red-50 rounded transition-colors"
-                            >
-                              <XIcon className="w-4 h-4 text-red-600" />
-                            </button>
-                          </div>
-                        ))}
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newNote}
-                          onChange={(e) => setNewNote(e.target.value)}
-                          placeholder="Add a note..."
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                        <button
-                          type="button"
-                          onClick={addNote}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                          Add Note
-                        </button>
-                      </div>
+                          ))
+                      ) : (
+                        <p className="text-sm text-gray-500 italic">No notes yet</p>
+                      )}
                     </div>
                   </div>
                 </div>

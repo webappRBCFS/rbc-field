@@ -10,6 +10,7 @@ import LeadCreate from '../pages/LeadCreate'
 import LeadEdit from '../pages/LeadEdit'
 import { Customers } from '../pages/Customers'
 import CustomerCreate from '../pages/CustomerCreate'
+import CustomerEdit from '../pages/CustomerEdit'
 import { Properties } from '../pages/Properties'
 import { Proposals } from '../pages/Proposals'
 import { Contracts } from '../pages/Contracts'
@@ -287,6 +288,7 @@ export function AppRoutes() {
                 <Route path="/leads/edit/:id" element={<LeadEdit />} />
                 <Route path="/customers" element={<Customers />} />
                 <Route path="/customers/create" element={<CustomerCreate />} />
+                <Route path="/customers/edit/:id" element={<CustomerEdit />} />
                 <Route path="/properties" element={<Properties />} />
                 <Route path="/proposals" element={<Proposals />} />
                 <Route path="/contracts" element={<Contracts />} />

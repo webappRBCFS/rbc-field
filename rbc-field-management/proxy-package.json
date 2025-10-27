@@ -1,0 +1,21 @@
+{
+  "name": "dsny-proxy-server",
+  "version": "1.0.0",
+  "description": "Server-side proxy for DSNY API to avoid CORS issues",
+  "main": "dsny-proxy-server.js",
+  "scripts": {
+    "start": "node dsny-proxy-server.js",
+    "dev": "nodemon dsny-proxy-server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["dsny", "api", "proxy", "cors"],
+  "author": "RBC Field Management",
+  "license": "MIT"
+}

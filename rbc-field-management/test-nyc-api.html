@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>NYC Open Data DSNY API Test</title>
+  </head>
+  <body>
+    <h1>NYC Open Data DSNY API Test</h1>
+    <button onclick="testAPI()">Test NYC Open Data API</button>
+    <div id="results"></div>
+
+    <script>
+      async function testAPI() {
+        const resultsDiv = document.getElementById('results')
+        resultsDiv.innerHTML = '<p>Testing NYC Open Data API...</p>'
+
+        try {
+          // Test 1: Try to get any Brooklyn data
+          console.log('Testing Brooklyn data...')
+          const response = await fetch(
+            "https://data.cityofnewyork.us/resource/p7k6-2pm8.json?$where=address like '%Brooklyn%'&$limit=3"
+          )
+
+          if (response.ok) {
+            const data = await response.json()
+            console.log('Brooklyn data found:', data)
+
+            if (data && data.length > 0) {
+              resultsDiv.innerHTML = `
+                            <h2>✅ API Working!</h2>
+                            <p>Found ${data.length} Brooklyn records</p>
+                            <h3>Sample Data:</h3>
+                            <pre>${JSON.stringify(data[0], null, 2)}</pre>
+                        `
+            } else {
+              resultsDiv.innerHTML = '<p>❌ No Brooklyn data found</p>'
+            }
+          } else {
+            resultsDiv.innerHTML = `<p>❌ API Error: ${response.status} ${response.statusText}</p>`
+          }
+        } catch (error) {
+          console.error('Error:', error)
+          resultsDiv.innerHTML = `<p>❌ Error: ${error.message}</p>`
+        }
+      }
+    </script>
+  </body>
+</html>

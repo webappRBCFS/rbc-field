@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Google Places API Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .test-section {
+        margin: 20px 0;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+      }
+      .success {
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+      }
+      .error {
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+      }
+      .info {
+        background-color: #d1ecf1;
+        border-color: #bee5eb;
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        margin: 10px 0;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+      button {
+        background-color: #007bff;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      .result {
+        margin-top: 10px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Google Places API Test Page</h1>
+
+    <div class="test-section info">
+      <h2>Step 1: Enter Your API Key</h2>
+      <p>
+        Get your API key from
+        <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a>
+      </p>
+      <input type="text" id="apiKey" placeholder="Enter your Google Places API key here..." />
+      <button onclick="testAPIKey()">Test API Key</button>
+      <div id="apiKeyResult" class="result"></div>
+    </div>
+
+    <div class="test-section" id="autocompleteTest" style="display: none">
+      <h2>Step 2: Test Address Autocomplete</h2>
+      <p>Type an address to test the autocomplete functionality:</p>
+      <input type="text" id="addressInput" placeholder="Start typing an address..." />
+      <div id="autocompleteResults" class="result"></div>
+    </div>
+
+    <div class="test-section" id="integrationTest" style="display: none">
+      <h2>Step 3: Integration Test</h2>
+      <p>Test the same functionality that will be used in your React app:</p>
+      <button onclick="testReactIntegration()">Test React Integration</button>
+      <div id="integrationResults" class="result"></div>
+    </div>
+
+    <script>
+      let apiKey = ''
+      let autocompleteService = null
+      let placesService = null
+
+      function testAPIKey() {
+        apiKey = document.getElementById('apiKey').value.trim()
+
+        if (!apiKey) {
+          document.getElementById('apiKeyResult').innerHTML = '❌ Please enter an API key'
+          return
+        }
+
+        // Test the API key with a simple request
+        const testUrl = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=123 Main Street&key=${apiKey}`
+
+        fetch(testUrl)
+          .then((response) => response.json())
+          .then((data) => {
+            const resultDiv = document.getElementById('apiKeyResult')
+
+            if (data.status === 'OK') {
+              resultDiv.innerHTML = `✅ API Key is working!\n\nStatus: ${
+                data.status
+              }\nResults found: ${data.predictions.length}\n\nSample result:\n${JSON.stringify(
+                data.predictions[0],
+                null,
+                2
+              )}`
+              resultDiv.parentElement.className = 'test-section success'
+
+              // Show next test section
+              document.getElementById('autocompleteTest').style.display = 'block'
+              initializeGoogleMaps()
+            } else {
+              resultDiv.innerHTML = `❌ API Key Error\n\nStatus: ${data.status}\nError: ${
+                data.error_message || 'Unknown error'
+              }\n\nCommon fixes:\n- Enable Places API in Google Cloud Console\n- Check API key restrictions\n- Verify billing is enabled`
+              resultDiv.parentElement.className = 'test-section error'
+            }
+          })
+          .catch((error) => {
+            document.getElementById(
+              'apiKeyResult'
+            ).innerHTML = `❌ Network Error\n\n${error.message}\n\nCheck your internet connection and try again.`
+            document.getElementById('apiKeyResult').parentElement.className = 'test-section error'
+          })
+      }
+
+      function initializeGoogleMaps() {
+        // Load Google Maps API dynamically
+        const script = document.createElement('script')
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
+        script.onload = () => {
+          autocompleteService = new google.maps.places.AutocompleteService()
+          placesService = new google.maps.places.PlacesService(document.createElement('div'))
+
+          // Set up address input listener
+          const addressInput = document.getElementById('addressInput')
+          addressInput.addEventListener('input', handleAddressInput)
+
+          document.getElementById('integrationTest').style.display = 'block'
+        }
+        document.head.appendChild(script)
+      }
+
+      function handleAddressInput(event) {
+        const query = event.target.value
+        const resultsDiv = document.getElementById('autocompleteResults')
+
+        if (query.length < 3) {
+          resultsDiv.innerHTML = 'Type at least 3 characters...'
+          return
+        }
+
+        autocompleteService.getPlacePredictions(
+          {
+            input: query,
+            types: ['address'],
+            componentRestrictions: { country: 'us' },
+          },
+          (predictions, status) => {
+            if (status === google.maps.places.PlacesServiceStatus.OK && predictions) {
+              resultsDiv.innerHTML = predictions
+                .slice(0, 5)
+                .map(
+                  (prediction) =>
+                    `<div style="padding: 5px; border-bottom: 1px solid #eee; cursor: pointer;" onclick="selectAddress('${prediction.place_id}')">
+                                ${prediction.description}
+                            </div>`
+                )
+                .join('')
+            } else {
+              resultsDiv.innerHTML = `No results found. Status: ${status}`
+            }
+          }
+        )
+      }
+
+      function selectAddress(placeId) {
+        placesService.getDetails(
+          {
+            placeId: placeId,
+            fields: ['formatted_address', 'address_components'],
+          },
+          (place, status) => {
+            if (status === google.maps.places.PlacesServiceStatus.OK && place) {
+              const resultDiv = document.getElementById('autocompleteResults')
+              resultDiv.innerHTML = `✅ Address Selected!\n\nFull Address: ${
+                place.formatted_address
+              }\n\nComponents:\n${JSON.stringify(place.address_components, null, 2)}`
+              resultDiv.parentElement.className = 'test-section success'
+            }
+          }
+        )
+      }
+
+      function testReactIntegration() {
+        const resultsDiv = document.getElementById('integrationResults')
+        resultsDiv.innerHTML = 'Testing React integration...'
+
+        // Simulate the same calls that the React component makes
+        autocompleteService.getPlacePredictions(
+          {
+            input: '149 Skillman Street',
+            types: ['address'],
+            componentRestrictions: { country: 'us' },
+          },
+          (predictions, status) => {
+            if (status === google.maps.places.PlacesServiceStatus.OK && predictions) {
+              const firstPrediction = predictions[0]
+
+              placesService.getDetails(
+                {
+                  placeId: firstPrediction.place_id,
+                  fields: ['formatted_address', 'address_components'],
+                },
+                (place, detailsStatus) => {
+                  if (detailsStatus === google.maps.places.PlacesServiceStatus.OK && place) {
+                    resultsDiv.innerHTML = `✅ React Integration Test Passed!\n\nThis is exactly what your React app will do:\n\n1. Autocomplete Request: ✅\n2. Place Details Request: ✅\n\nSelected Address: ${
+                      place.formatted_address
+                    }\n\nAddress Components:\n${JSON.stringify(place.address_components, null, 2)}`
+                    resultsDiv.parentElement.className = 'test-section success'
+                  } else {
+                    resultsDiv.innerHTML = `❌ Place Details Error: ${detailsStatus}`
+                    resultsDiv.parentElement.className = 'test-section error'
+                  }
+                }
+              )
+            } else {
+              resultsDiv.innerHTML = `❌ Autocomplete Error: ${status}`
+              resultsDiv.parentElement.className = 'test-section error'
+            }
+          }
+        )
+      }
+    </script>
+  </body>
+</html>

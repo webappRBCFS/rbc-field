@@ -296,7 +296,10 @@ export function Customers() {
                         <button className="text-blue-600 hover:text-blue-900">
                           <EyeIcon className="w-4 h-4" />
                         </button>
-                        <button className="text-gray-600 hover:text-gray-900">
+                        <button
+                          onClick={() => (window.location.href = `/customers/edit/${customer.id}`)}
+                          className="text-gray-600 hover:text-gray-900"
+                        >
                           <EditIcon className="w-4 h-4" />
                         </button>
                         <button

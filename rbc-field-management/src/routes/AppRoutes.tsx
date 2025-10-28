@@ -11,7 +11,11 @@ import LeadEdit from '../pages/LeadEdit'
 import { Customers } from '../pages/Customers'
 import CustomerCreate from '../pages/CustomerCreate'
 import CustomerEdit from '../pages/CustomerEdit'
+import CustomerView from '../pages/CustomerView'
 import { Properties } from '../pages/Properties'
+import PropertyCreate from '../pages/PropertyCreate'
+import PropertyEdit from '../pages/PropertyEdit'
+import PropertyView from '../pages/PropertyView'
 import { Proposals } from '../pages/Proposals'
 import { Contracts } from '../pages/Contracts'
 import { ContractCreate } from '../pages/ContractCreate'
@@ -289,7 +293,11 @@ export function AppRoutes() {
                 <Route path="/customers" element={<Customers />} />
                 <Route path="/customers/create" element={<CustomerCreate />} />
                 <Route path="/customers/edit/:id" element={<CustomerEdit />} />
+                <Route path="/customers/view/:id" element={<CustomerView />} />
                 <Route path="/properties" element={<Properties />} />
+                <Route path="/properties/create" element={<PropertyCreate />} />
+                <Route path="/properties/edit/:id" element={<PropertyEdit />} />
+                <Route path="/properties/view/:id" element={<PropertyView />} />
                 <Route path="/proposals" element={<Proposals />} />
                 <Route path="/contracts" element={<Contracts />} />
                 <Route path="/contracts/create" element={<ContractCreate />} />

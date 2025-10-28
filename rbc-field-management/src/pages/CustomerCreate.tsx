@@ -192,6 +192,17 @@ export default function CustomerCreate() {
       // Get primary contact if exists
       const primaryContact = contacts[0] || null
 
+      // Prepare contacts data (only contacts with names)
+      const contactsData = contacts
+        .filter((c) => c.name.trim() !== '')
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          cell: c.cell,
+          email: c.email,
+        }))
+
       // Create customer
       const { data: customer, error: customerError } = await supabase
         .from('customers')
@@ -207,6 +218,8 @@ export default function CustomerCreate() {
             state: companyData.state || null,
             zip_code: companyData.zip || null,
             is_active: customerData.status === 'active',
+            notes: customerNotes.length > 0 ? customerNotes : null,
+            contacts: contactsData.length > 0 ? contactsData : null,
           },
         ])
         .select()

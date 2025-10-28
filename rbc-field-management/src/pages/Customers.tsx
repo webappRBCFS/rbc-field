@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   PlusIcon,
   SearchIcon,
@@ -7,41 +8,16 @@ import {
   MailIcon,
   PhoneIcon,
   FileTextIcon,
+  ClipboardListIcon,
+  BriefcaseIcon,
+  DollarSignIcon,
 } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 
 export function Customers() {
-  const [customers, setCustomers] = useState([
-    {
-      id: 1,
-      name: 'ABC Corporation',
-      email: 'contact@abccorp.com',
-      phone: '(555) 123-4567',
-      address: '123 Business St, New York, NY 10001',
-      properties: 3,
-      jobs: 12,
-      status: 'active',
-    },
-    {
-      id: 2,
-      name: 'XYZ Industries',
-      email: 'info@xyzind.com',
-      phone: '(555) 987-6543',
-      address: '456 Industrial Ave, Los Angeles, CA 90210',
-      properties: 2,
-      jobs: 8,
-      status: 'active',
-    },
-    {
-      id: 3,
-      name: 'Tech Solutions Inc',
-      email: 'hello@techsolutions.com',
-      phone: '(555) 456-7890',
-      address: '789 Tech Blvd, San Francisco, CA 94105',
-      properties: 1,
-      jobs: 5,
-      status: 'inactive',
-    },
-  ])
+  const navigate = useNavigate()
+  const [customers, setCustomers] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
@@ -51,6 +27,30 @@ export function Customers() {
     phone: '',
     address: '',
   })
+
+  useEffect(() => {
+    fetchCustomers()
+  }, [])
+
+  const fetchCustomers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setCustomers(data || [])
+    } catch (error) {
+      console.error('Error fetching customers:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleViewCustomer = (customer: any) => {
+    window.location.href = `/customers/view/${customer.id}`
+  }
 
   const handleCreateProposal = (customer: any) => {
     // Navigate to proposals page with customer ID
@@ -73,8 +73,8 @@ export function Customers() {
 
   const filteredCustomers = customers.filter(
     (customer) =>
-      customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      customer.email.toLowerCase().includes(searchTerm.toLowerCase())
+      customer.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.email?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   return (
@@ -103,7 +103,7 @@ export function Customers() {
               <div>
                 <p className="text-sm font-medium text-gray-600">Active Customers</p>
                 <p className="mt-2 text-3xl font-bold text-gray-900">
-                  {customers.filter((c) => c.status === 'active').length}
+                  {customers.filter((c) => c.is_active).length}
                 </p>
               </div>
               <div className="p-3 rounded-lg bg-green-50 text-green-600">
@@ -115,9 +115,7 @@ export function Customers() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Properties</p>
-                <p className="mt-2 text-3xl font-bold text-gray-900">
-                  {customers.reduce((sum, c) => sum + c.properties, 0)}
-                </p>
+                <p className="mt-2 text-3xl font-bold text-gray-900">-</p>
               </div>
               <div className="p-3 rounded-lg bg-purple-50 text-purple-600">
                 <EyeIcon className="w-6 h-6" />
@@ -128,9 +126,7 @@ export function Customers() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Jobs</p>
-                <p className="mt-2 text-3xl font-bold text-gray-900">
-                  {customers.reduce((sum, c) => sum + c.jobs, 0)}
-                </p>
+                <p className="mt-2 text-3xl font-bold text-gray-900">-</p>
               </div>
               <div className="p-3 rounded-lg bg-orange-50 text-orange-600">
                 <EyeIcon className="w-6 h-6" />
@@ -242,12 +238,6 @@ export function Customers() {
                     Contact
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Properties
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Jobs
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -260,54 +250,70 @@ export function Customers() {
                   <tr key={customer.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                        <div className="text-sm text-gray-500">{customer.address}</div>
+                        <button
+                          onClick={() => (window.location.href = `/customers/view/${customer.id}`)}
+                          className="text-sm font-medium text-gray-900 hover:text-blue-600 hover:underline text-left"
+                        >
+                          {customer.company_name || 'N/A'}
+                        </button>
+                        <div className="text-sm text-gray-500">
+                          {customer.address || ''}
+                          {customer.city && `, ${customer.city}`}
+                          {customer.state && `, ${customer.state}`}
+                          {customer.zip_code && ` ${customer.zip_code}`}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <MailIcon className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm text-gray-900">{customer.email}</span>
+                        <span className="text-sm text-gray-900">{customer.email || 'N/A'}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         <PhoneIcon className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm text-gray-900">{customer.phone}</span>
+                        <span className="text-sm text-gray-900">{customer.phone || 'N/A'}</span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {customer.properties}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {customer.jobs}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          customer.status === 'active'
+                          customer.is_active
                             ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
                         }`}
                       >
-                        {customer.status}
+                        {customer.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex gap-2">
-                        <button className="text-blue-600 hover:text-blue-900">
-                          <EyeIcon className="w-4 h-4" />
-                        </button>
                         <button
-                          onClick={() => (window.location.href = `/customers/edit/${customer.id}`)}
-                          className="text-gray-600 hover:text-gray-900"
-                        >
-                          <EditIcon className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleCreateProposal(customer)}
-                          className="text-green-600 hover:text-green-900"
+                          onClick={() => navigate(`/proposals/create?customer=${customer.id}`)}
+                          className="text-purple-600 hover:text-purple-900"
                           title="Create Proposal"
                         >
                           <FileTextIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/contracts/create?customer=${customer.id}`)}
+                          className="text-green-600 hover:text-green-900"
+                          title="Create Contract"
+                        >
+                          <ClipboardListIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/jobs/create?customer=${customer.id}`)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Create Job"
+                        >
+                          <BriefcaseIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/invoices/create?customer=${customer.id}`)}
+                          className="text-orange-600 hover:text-orange-900"
+                          title="Create Invoice"
+                        >
+                          <DollarSignIcon className="w-4 h-4" />
                         </button>
                       </div>
                     </td>

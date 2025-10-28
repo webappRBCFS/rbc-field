@@ -157,6 +157,18 @@ export default function CustomerEdit() {
       if (customer.notes) {
         setCustomerNotes(Array.isArray(customer.notes) ? customer.notes : [])
       }
+
+      // Fetch contacts if available
+      if (customer.contacts && Array.isArray(customer.contacts) && customer.contacts.length > 0) {
+        const formattedContacts = customer.contacts.map((c: any) => ({
+          id: c.id || Date.now().toString() + Math.random(),
+          name: c.name || '',
+          phone: c.phone || '',
+          cell: c.cell || '',
+          email: c.email || '',
+        }))
+        setContacts(formattedContacts)
+      }
     } catch (error) {
       console.error('Error fetching customer:', error)
       alert('Error loading customer: ' + (error as any).message)
@@ -250,6 +262,17 @@ export default function CustomerEdit() {
     setLoading(true)
 
     try {
+      // Prepare contacts data
+      const contactsData = contacts
+        .filter((c) => c.name.trim() !== '')
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          cell: c.cell,
+          email: c.email,
+        }))
+
       // Update customer
       const { error: updateError } = await supabase
         .from('customers')
@@ -265,6 +288,7 @@ export default function CustomerEdit() {
           is_active: customerData.status === 'active',
           assigned_to: customerData.assigned_to || null,
           notes: customerNotes,
+          contacts: contactsData.length > 0 ? contactsData : null,
         })
         .eq('id', id)
 

@@ -644,9 +644,12 @@ export function Leads() {
                   <tr key={lead.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">
+                        <button
+                          onClick={() => handleViewLead(lead)}
+                          className="text-sm font-medium text-gray-900 hover:text-blue-600 hover:underline text-left"
+                        >
                           {lead.contact_first_name} {lead.contact_last_name}
-                        </div>
+                        </button>
                         {lead.company_name && (
                           <div className="text-sm text-gray-500">{lead.company_name}</div>
                         )}
@@ -728,20 +731,6 @@ export function Leads() {
                           </div>
                         ) : (
                           <>
-                            <button
-                              onClick={() => handleViewLead(lead)}
-                              className="p-1 sm:p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-md transition-colors"
-                              title="View Lead Details"
-                            >
-                              <EyeIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-                            </button>
-                            <button
-                              onClick={() => handleEditLead(lead)}
-                              className="p-1 sm:p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors"
-                              title="Edit Lead"
-                            >
-                              <EditIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-                            </button>
                             <button
                               onClick={() => handleCreateProposal(lead)}
                               className="p-1 sm:p-2 text-green-600 hover:text-green-900 hover:bg-green-50 rounded-md transition-colors"

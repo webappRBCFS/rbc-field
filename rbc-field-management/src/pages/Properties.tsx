@@ -1,100 +1,59 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   PlusIcon,
   SearchIcon,
-  EditIcon,
-  EyeIcon,
+  FileTextIcon,
+  ClipboardListIcon,
+  BriefcaseIcon,
+  DollarSignIcon,
   MapPinIcon,
   HomeIcon,
-  CalendarIcon,
 } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 
 export function Properties() {
-  const [properties, setProperties] = useState([
-    {
-      id: 1,
-      name: 'ABC Corp Main Office',
-      address: '123 Business St, New York, NY 10001',
-      customer: 'ABC Corporation',
-      customerId: 1,
-      type: 'Office',
-      sqft: 5000,
-      jobs: 4,
-      lastService: '2024-01-15',
-      status: 'active',
-    },
-    {
-      id: 2,
-      name: 'ABC Corp Warehouse',
-      address: '456 Industrial Ave, New York, NY 10002',
-      customer: 'ABC Corporation',
-      customerId: 1,
-      type: 'Warehouse',
-      sqft: 15000,
-      jobs: 6,
-      lastService: '2024-01-10',
-      status: 'active',
-    },
-    {
-      id: 3,
-      name: 'XYZ Industries Facility',
-      address: '789 Manufacturing Blvd, Los Angeles, CA 90210',
-      customer: 'XYZ Industries',
-      customerId: 2,
-      type: 'Manufacturing',
-      sqft: 25000,
-      jobs: 8,
-      lastService: '2024-01-12',
-      status: 'active',
-    },
-    {
-      id: 4,
-      name: 'Tech Solutions HQ',
-      address: '321 Innovation Dr, San Francisco, CA 94105',
-      customer: 'Tech Solutions Inc',
-      customerId: 3,
-      type: 'Office',
-      sqft: 8000,
-      jobs: 2,
-      lastService: '2024-01-05',
-      status: 'inactive',
-    },
-  ])
+  const navigate = useNavigate()
+  const [properties, setProperties] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [searchTerm, setSearchTerm] = useState('')
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [newProperty, setNewProperty] = useState({
-    name: '',
-    address: '',
-    customerId: '',
-    type: 'Office',
-    sqft: '',
-  })
 
-  const customers = [
-    { id: 1, name: 'ABC Corporation' },
-    { id: 2, name: 'XYZ Industries' },
-    { id: 3, name: 'Tech Solutions Inc' },
-  ]
+  useEffect(() => {
+    fetchProperties()
+  }, [])
 
-  const handleAddProperty = (e: React.FormEvent) => {
-    e.preventDefault()
-    const customer = customers.find((c) => c.id === parseInt(newProperty.customerId))
-    const property = {
-      id: properties.length + 1,
-      name: newProperty.name,
-      address: newProperty.address,
-      customerId: parseInt(newProperty.customerId),
-      type: newProperty.type,
-      sqft: parseInt(newProperty.sqft),
-      customer: customer?.name || '',
-      jobs: 0,
-      lastService: new Date().toISOString().split('T')[0],
-      status: 'active',
+  const fetchProperties = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('properties')
+        .select('*, customers!inner(company_name)')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      // Transform the data to match the expected format
+      const transformedData =
+        data?.map((p) => ({
+          id: p.id,
+          name: p.name,
+          address: `${p.address || ''} ${p.city || ''} ${p.state || ''} ${p.zip_code || ''}`.trim(),
+          customer: (p.customers as any)?.company_name || 'N/A',
+          customerId: p.customer_id,
+          type: p.property_type || 'N/A',
+          sqft: p.sqft || 0,
+          jobs: 0,
+          lastService: p.created_at ? new Date(p.created_at).toISOString().split('T')[0] : '',
+          status: 'active',
+        })) || []
+
+      setProperties(transformedData)
+    } catch (error) {
+      console.error('Error fetching properties:', error)
+      alert('Error loading properties: ' + (error as any).message)
+    } finally {
+      setLoading(false)
     }
-    setProperties([...properties, property])
-    setNewProperty({ name: '', address: '', customerId: '', type: 'Office', sqft: '' })
-    setShowAddForm(false)
   }
 
   const filteredProperties = properties.filter(
@@ -134,7 +93,7 @@ export function Properties() {
                 </p>
               </div>
               <div className="p-3 rounded-lg bg-green-50 text-green-600">
-                <EyeIcon className="w-6 h-6" />
+                <HomeIcon className="w-6 h-6" />
               </div>
             </div>
           </div>
@@ -160,7 +119,7 @@ export function Properties() {
                 </p>
               </div>
               <div className="p-3 rounded-lg bg-orange-50 text-orange-600">
-                <CalendarIcon className="w-6 h-6" />
+                <BriefcaseIcon className="w-6 h-6" />
               </div>
             </div>
           </div>
@@ -180,7 +139,7 @@ export function Properties() {
               />
             </div>
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => navigate('/properties/create')}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <PlusIcon className="w-5 h-5" />
@@ -188,94 +147,6 @@ export function Properties() {
             </button>
           </div>
         </div>
-
-        {/* Add Property Form */}
-        {showAddForm && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Add New Property</h2>
-            <form onSubmit={handleAddProperty} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Property Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newProperty.name}
-                  onChange={(e) => setNewProperty({ ...newProperty, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Customer</label>
-                <select
-                  required
-                  value={newProperty.customerId}
-                  onChange={(e) => setNewProperty({ ...newProperty, customerId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">Select Customer</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                <input
-                  type="text"
-                  required
-                  value={newProperty.address}
-                  onChange={(e) => setNewProperty({ ...newProperty, address: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Property Type
-                </label>
-                <select
-                  value={newProperty.type}
-                  onChange={(e) => setNewProperty({ ...newProperty, type: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="Office">Office</option>
-                  <option value="Warehouse">Warehouse</option>
-                  <option value="Manufacturing">Manufacturing</option>
-                  <option value="Retail">Retail</option>
-                  <option value="Residential">Residential</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Square Feet</label>
-                <input
-                  type="number"
-                  required
-                  value={newProperty.sqft}
-                  onChange={(e) => setNewProperty({ ...newProperty, sqft: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              <div className="md:col-span-2 flex gap-2">
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Add Property
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
 
         {/* Properties Table */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -317,7 +188,12 @@ export function Properties() {
                   <tr key={property.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{property.name}</div>
+                        <button
+                          onClick={() => navigate(`/properties/view/${property.id}`)}
+                          className="text-sm font-medium text-gray-900 hover:text-blue-600 hover:underline text-left"
+                        >
+                          {property.name}
+                        </button>
                         <div className="text-sm text-gray-500 flex items-center gap-1">
                           <MapPinIcon className="w-3 h-3" />
                           {property.address}
@@ -352,13 +228,35 @@ export function Properties() {
                         {property.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex gap-2">
-                        <button className="text-blue-600 hover:text-blue-900">
-                          <EyeIcon className="w-4 h-4" />
+                        <button
+                          onClick={() => navigate(`/proposals/create?property=${property.id}`)}
+                          className="text-purple-600 hover:text-purple-900"
+                          title="Create Proposal"
+                        >
+                          <FileTextIcon className="w-4 h-4" />
                         </button>
-                        <button className="text-gray-600 hover:text-gray-900">
-                          <EditIcon className="w-4 h-4" />
+                        <button
+                          onClick={() => navigate(`/contracts/create?property=${property.id}`)}
+                          className="text-green-600 hover:text-green-900"
+                          title="Create Contract"
+                        >
+                          <ClipboardListIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/jobs/create?property=${property.id}`)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Create Job"
+                        >
+                          <BriefcaseIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/invoices/create?property=${property.id}`)}
+                          className="text-orange-600 hover:text-orange-900"
+                          title="Create Invoice"
+                        >
+                          <DollarSignIcon className="w-4 h-4" />
                         </button>
                       </div>
                     </td>

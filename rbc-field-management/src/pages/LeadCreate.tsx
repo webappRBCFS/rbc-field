@@ -212,6 +212,64 @@ export default function LeadCreate() {
     setLeadNotes(leadNotes.filter((n) => n.timestamp !== timestamp))
   }
 
+  // Validation and navigation
+  const validateTab = (tab: 'company' | 'contacts' | 'projects' | 'notes'): boolean => {
+    switch (tab) {
+      case 'company':
+        return !!companyData.name
+      case 'contacts':
+        return true // Contacts are optional
+      case 'projects':
+        return true // Projects are optional
+      case 'notes':
+        return true // Notes are optional
+      default:
+        return false
+    }
+  }
+
+  const handleNext = () => {
+    if (!validateTab(activeTab)) {
+      alert('Please fill in all required fields before continuing')
+      return
+    }
+
+    const tabs: Array<'company' | 'contacts' | 'projects' | 'notes'> = [
+      'company',
+      'contacts',
+      'projects',
+      'notes',
+    ]
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex < tabs.length - 1) {
+      setActiveTab(tabs[currentIndex + 1])
+    }
+  }
+
+  const handleBack = () => {
+    const tabs: Array<'company' | 'contacts' | 'projects' | 'notes'> = [
+      'company',
+      'contacts',
+      'projects',
+      'notes',
+    ]
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex > 0) {
+      setActiveTab(tabs[currentIndex - 1])
+    }
+  }
+
+  const onSubmit = async () => {
+    setLoading(true)
+    try {
+      await handleSubmit({ preventDefault: () => {} } as any)
+    } catch (error) {
+      console.error('Error:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -290,62 +348,60 @@ export default function LeadCreate() {
           {/* Tab Navigation */}
           <div className="bg-white rounded-lg border border-gray-200">
             <div className="flex border-b border-gray-200">
-              <button
-                type="button"
-                onClick={() => setActiveTab('company')}
-                className={`flex-1 py-4 px-4 text-center font-medium transition-colors ${
+              <div
+                className={`flex-1 py-4 px-4 text-center font-medium ${
                   activeTab === 'company'
                     ? 'text-blue-600 border-b-2 border-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'contacts' || activeTab === 'projects' || activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 <div className="flex items-center justify-center gap-2">
                   <BuildingIcon className="w-5 h-5" />
                   Company
                 </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('contacts')}
-                className={`flex-1 py-4 px-4 text-center font-medium transition-colors ${
+              </div>
+              <div
+                className={`flex-1 py-4 px-4 text-center font-medium ${
                   activeTab === 'contacts'
                     ? 'text-blue-600 border-b-2 border-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'projects' || activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 <div className="flex items-center justify-center gap-2">
                   <UserIcon className="w-5 h-5" />
                   Contacts
                 </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('projects')}
-                className={`flex-1 py-4 px-4 text-center font-medium transition-colors ${
+              </div>
+              <div
+                className={`flex-1 py-4 px-4 text-center font-medium ${
                   activeTab === 'projects'
                     ? 'text-blue-600 border-b-2 border-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 <div className="flex items-center justify-center gap-2">
                   <FileTextIcon className="w-5 h-5" />
                   Projects
                 </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('notes')}
-                className={`flex-1 py-4 px-4 text-center font-medium transition-colors ${
+              </div>
+              <div
+                className={`flex-1 py-4 px-4 text-center font-medium ${
                   activeTab === 'notes'
                     ? 'text-blue-600 border-b-2 border-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : 'text-gray-400'
                 }`}
               >
                 <div className="flex items-center justify-center gap-2">
                   <FileTextIcon className="w-5 h-5" />
                   Notes & Activity
                 </div>
-              </button>
+              </div>
             </div>
 
             {/* Tab Content */}
@@ -900,23 +956,58 @@ export default function LeadCreate() {
             </div>
           </div>
 
-          {/* Submit Buttons */}
-          <div className="flex gap-3">
+          {/* Navigation Buttons */}
+          <div className="flex items-center justify-between gap-4 pt-6 border-t border-gray-200">
+            {/* Left side: Cancel button */}
             <button
               type="button"
               onClick={() => navigate('/leads')}
-              className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              <PlusIcon className="w-5 h-5" />
-              {loading ? 'Creating...' : 'Create Lead'}
-            </button>
+
+            {/* Right side: Back and Next/Create buttons */}
+            <div className="flex gap-3">
+              {activeTab !== 'company' && (
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                >
+                  Back
+                </button>
+              )}
+              {activeTab === 'notes' ? (
+                <button
+                  type="button"
+                  onClick={onSubmit}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Creating Lead...
+                    </>
+                  ) : (
+                    <>
+                      <PlusIcon className="w-4 h-4" />
+                      Create Lead
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={!validateTab(activeTab)}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>

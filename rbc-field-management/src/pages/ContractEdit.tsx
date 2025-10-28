@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import ScheduleView from '../components/ScheduleView'
 import { ArrowLeftIcon, SaveIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { logActivity } from '../utils/activityLogger'
 
 interface Contract {
   id: string
@@ -69,6 +70,15 @@ export function ContractEdit() {
   const [filteredProposals, setFilteredProposals] = useState<any[]>([])
   const [showCreateCustomer, setShowCreateCustomer] = useState(false)
   const [showCreateProperty, setShowCreateProperty] = useState(false)
+  const [activeTab, setActiveTab] = useState<'overview' | 'schedule' | 'terms' | 'notes'>(
+    'overview'
+  )
+  const [activities, setActivities] = useState<any[]>([])
+  const [relatedItems, setRelatedItems] = useState<{
+    jobs: any[]
+    invoices: any[]
+    proposals: any[]
+  }>({ jobs: [], invoices: [], proposals: [] })
 
   const [formData, setFormData] = useState({
     title: '',
@@ -124,6 +134,7 @@ export function ContractEdit() {
   useEffect(() => {
     if (id) {
       fetchContract(id)
+      fetchActivities()
     }
     fetchData()
   }, [id])
@@ -534,6 +545,48 @@ export function ContractEdit() {
     }))
   }
 
+  const fetchActivities = async () => {
+    if (!id) return
+    try {
+      const { data: activityData } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .eq('entity_id', id)
+        .eq('entity_type', 'contract')
+        .order('created_at', { ascending: false })
+
+      setActivities(activityData || [])
+
+      // Fetch related items
+      const { data: jobsData } = await supabase.from('jobs').select('*').eq('contract_id', id)
+
+      const { data: invoicesData } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('contract_id', id)
+
+      const { data: proposalsData } = await supabase
+        .from('proposals')
+        .select('*')
+        .eq('contract_id', id)
+
+      setRelatedItems({
+        jobs: jobsData || [],
+        invoices: invoicesData || [],
+        proposals: proposalsData || [],
+      })
+    } catch (error) {
+      console.error('Error fetching activities:', error)
+    }
+  }
+
+  const handleNotesKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault()
+      // Could auto-save here if desired
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
@@ -564,17 +617,14 @@ export function ContractEdit() {
           late_fee_percentage: formData.late_fee_percentage || null,
           cancellation_terms: formData.cancellation_terms || null,
           notes: formData.notes || null,
-          // Comprehensive Schedule System
           master_weekly_schedule: formData.master_weekly_schedule || [],
           garbage_schedule: formData.garbage_schedule || [],
           recycling_schedule: formData.recycling_schedule || [],
           bulk_schedule: formData.bulk_schedule || [],
           organics_schedule: formData.organics_schedule || [],
           interior_cleaning_schedule: formData.interior_cleaning_schedule || [],
-          // Dynamic manual schedules
           manual_schedules: formData.manual_schedules || [],
           dsny_integration: formData.dsny_integration,
-          // Legacy fields for compatibility
           dsny_pickup_days: formData.dsny_pickup_days || null,
           dsny_collection_types: formData.dsny_collection_types || null,
           updated_at: new Date().toISOString(),
@@ -582,6 +632,17 @@ export function ContractEdit() {
         .eq('id', id)
 
       if (error) throw error
+
+      await logActivity({
+        activity_type: 'updated',
+        entity_type: 'contract',
+        entity_id: id || '',
+        description: `Contract ${formData.title} was updated`,
+        metadata: {
+          title: formData.title,
+          status: formData.status,
+        },
+      })
 
       alert('Contract updated successfully!')
       navigate(`/contracts/details/${id}`)
@@ -631,7 +692,7 @@ export function ContractEdit() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
@@ -654,681 +715,478 @@ export function ContractEdit() {
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Basic Information */}
-        <div className="bg-white p-6 rounded-lg border border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Contract Title *
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-            </div>
+      {/* Tab Navigation */}
+      <div className="flex gap-4 mb-6 border-b border-gray-200">
+        {['overview', 'schedule', 'terms', 'notes'].map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab as 'overview' | 'schedule' | 'terms' | 'notes')}
+            className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+              activeTab === tab
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Contract Type *
-              </label>
-              <select
-                value={formData.contract_type}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    contract_type: e.target.value as 'one_time' | 'recurring',
-                    is_recurring: e.target.value === 'recurring',
-                  })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              >
-                <option value="one_time">One-Time</option>
-                <option value="recurring">Recurring</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Service Type *</label>
-              <select
-                value={formData.service_type}
-                onChange={(e) => setFormData({ ...formData, service_type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              >
-                <option value="">Select Service Type</option>
-                {serviceCategories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Total Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.total_amount}
-                onChange={(e) =>
-                  setFormData({ ...formData, total_amount: parseFloat(e.target.value) || 0 })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Billing Frequency
-              </label>
-              <select
-                value={formData.billing_frequency}
-                onChange={(e) => setFormData({ ...formData, billing_frequency: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="one_time">One-Time</option>
-                <option value="weekly">Weekly</option>
-                <option value="bi_weekly">Bi-Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">Quarterly</option>
-                <option value="annually">Annually</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-              <select
-                value={formData.status}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    status: e.target.value as
-                      | 'draft'
-                      | 'pending_signature'
-                      | 'active'
-                      | 'paused'
-                      | 'completed'
-                      | 'cancelled'
-                      | 'expired',
-                  })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="draft">Draft</option>
-                <option value="pending_signature">Pending Signature</option>
-                <option value="active">Active</option>
-                <option value="paused">Paused</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="expired">Expired</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Contract description..."
-            />
-          </div>
-        </div>
-
-        {/* Customer & Property Information */}
-        <div className="bg-white p-6 rounded-lg border border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer & Property</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Customer *</label>
-              <div className="flex gap-2">
-                <select
-                  value={formData.customer_id}
-                  onChange={(e) => {
-                    setFormData({ ...formData, customer_id: e.target.value, property_id: '' })
-                  }}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                >
-                  <option value="">Select Customer</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.company_name ||
-                        `${customer.contact_first_name} ${customer.contact_last_name}`}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateCustomer(true)}
-                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
-                >
-                  + New
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Property *</label>
-              <div className="flex gap-2">
-                <select
-                  value={formData.property_id}
-                  onChange={(e) => setFormData({ ...formData, property_id: e.target.value })}
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                >
-                  <option value="">Select Property</option>
-                  {properties
-                    .filter((property) => property.customer_id === formData.customer_id)
-                    .map((property) => (
-                      <option key={property.id} value={property.id}>
-                        {property.name} - {property.address}
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Overview Tab */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer & Property</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Customer *</label>
+                  <select
+                    value={formData.customer_id}
+                    onChange={(e) =>
+                      setFormData({ ...formData, customer_id: e.target.value, property_id: '' })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="">Select Customer</option>
+                    {customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.company_name ||
+                          `${customer.contact_first_name} ${customer.contact_last_name}`}
                       </option>
                     ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateProperty(true)}
-                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
-                >
-                  + New
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Proposal (Optional)
-              </label>
-              <select
-                value={formData.proposal_id}
-                onChange={(e) => setFormData({ ...formData, proposal_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Select Proposal</option>
-                {filteredProposals.map((proposal) => (
-                  <option key={proposal.id} value={proposal.id}>
-                    {proposal.proposal_number} - {proposal.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Contract Dates */}
-        <div className="bg-white p-6 rounded-lg border border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Dates</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
-              <input
-                type="date"
-                value={formData.start_date}
-                onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
-              <input
-                type="date"
-                value={formData.end_date}
-                onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Recurring Schedule */}
-        {formData.is_recurring && (
-          <div className="bg-white p-6 rounded-lg border border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Recurring Schedule</h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Recurrence Type
-                </label>
-                <select
-                  value={formData.recurrence_type}
-                  onChange={(e) => setFormData({ ...formData, recurrence_type: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="custom">Custom Days</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Recurrence Interval
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={formData.recurrence_interval}
-                  onChange={(e) =>
-                    setFormData({ ...formData, recurrence_interval: parseInt(e.target.value) || 1 })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  End Date (Optional)
-                </label>
-                <input
-                  type="date"
-                  value={formData.recurrence_end_date}
-                  onChange={(e) =>
-                    setFormData({ ...formData, recurrence_end_date: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  End After Count (Optional)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={formData.recurrence_end_count}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      recurrence_end_count: parseInt(e.target.value) || 0,
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* DSNY Integration for Maintenance Services */}
-            {isMaintenanceService() && (
-              <div className="space-y-6 pl-6 border-l-2 border-green-200">
-                <div>
-                  <h3 className="text-md font-medium text-gray-700 mb-2">DSNY Integration</h3>
-                  <button
-                    type="button"
-                    onClick={handleDSNYFetch}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Fetch DSNY Schedule
-                  </button>
-                  <p className="text-sm text-blue-700 mt-1">
-                    Automatically fetch all collection schedules (garbage, recycling, organics,
-                    bulk) based on DSNY pickup days
-                  </p>
+                  </select>
                 </div>
 
-                {/* Master Weekly Schedule */}
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-gray-700">
-                    Master Weekly Schedule (Days We Visit)
-                  </h4>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Property *</label>
+                  <select
+                    value={formData.property_id}
+                    onChange={(e) => setFormData({ ...formData, property_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="">Select Property</option>
+                    {properties
+                      .filter((property) => property.customer_id === formData.customer_id)
+                      .map((property) => (
+                        <option key={property.id} value={property.id}>
+                          {property.name} - {property.address}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Proposal
+                  </label>
+                  <select
+                    value={formData.proposal_id}
+                    onChange={(e) => setFormData({ ...formData, proposal_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select Proposal</option>
+                    {filteredProposals.map((proposal) => (
+                      <option key={proposal.id} value={proposal.id}>
+                        {proposal.proposal_number} - {proposal.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Service Details</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Service Type *
+                  </label>
+                  <select
+                    value={formData.service_type}
+                    onChange={(e) => setFormData({ ...formData, service_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="">Select Service Type</option>
+                    {serviceCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Total Amount
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.total_amount}
+                    onChange={(e) =>
+                      setFormData({ ...formData, total_amount: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Information</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Contract Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                    placeholder="Auto-filled: Property Address - Service Type"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        status: e.target.value as
+                          | 'draft'
+                          | 'pending_signature'
+                          | 'active'
+                          | 'paused'
+                          | 'completed'
+                          | 'cancelled'
+                          | 'expired',
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="pending_signature">Pending Signature</option>
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="expired">Expired</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Contract description..."
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Schedule Tab */}
+        {activeTab === 'schedule' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Schedule</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Contract Type *
+                  </label>
+                  <select
+                    required
+                    value={formData.contract_type}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        contract_type: e.target.value as 'one_time' | 'recurring',
+                        is_recurring: e.target.value === 'recurring',
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="one_time">One Time</option>
+                    <option value="recurring">Recurring</option>
+                  </select>
+                </div>
+
+                {formData.is_recurring && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Recurrence Type
+                    </label>
+                    <select
+                      value={formData.recurrence_type}
+                      onChange={(e) =>
+                        setFormData({ ...formData, recurrence_type: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="custom">Custom Days</option>
+                    </select>
+                  </div>
+                )}
+
+                {formData.is_recurring && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Billing Frequency
+                    </label>
+                    <select
+                      value={formData.billing_frequency}
+                      onChange={(e) =>
+                        setFormData({ ...formData, billing_frequency: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="one_time">One Time</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="bi_weekly">Bi-Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="quarterly">Quarterly</option>
+                      <option value="annually">Annually</option>
+                    </select>
+                  </div>
+                )}
+
+                {formData.is_recurring && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.start_date}
+                      onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                )}
+
+                {formData.is_recurring && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+                    <input
+                      type="date"
+                      value={formData.end_date}
+                      onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {formData.is_recurring && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <h3 className="text-sm font-medium text-gray-700 mb-3">DSNY Integration</h3>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="dsny_integration_schedule"
+                      checked={formData.dsny_integration}
+                      onChange={(e) =>
+                        setFormData({ ...formData, dsny_integration: e.target.checked })
+                      }
+                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                    />
+                    <label
+                      htmlFor="dsny_integration_schedule"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Sync with DSNY pickup schedule
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {formData.is_recurring && (
+                <div className="mt-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Recurring Days
+                  </label>
                   <div className="grid grid-cols-7 gap-2">
                     {dayNames.map((day) => (
                       <div key={day.key} className="flex flex-col items-center">
                         <input
                           type="checkbox"
-                          id={`master_${day.key}`}
-                          checked={formData.master_weekly_schedule.includes(day.key)}
+                          id={`recurrence_day_${day.key}`}
+                          checked={formData.recurrence_days.includes(day.key)}
                           onChange={(e) => {
-                            const newSchedule = e.target.checked
-                              ? [...formData.master_weekly_schedule, day.key]
-                              : formData.master_weekly_schedule.filter((d) => d !== day.key)
-                            setFormData({
-                              ...formData,
-                              master_weekly_schedule: newSchedule,
-                              recurrence_days: newSchedule,
-                            })
+                            const newDays = e.target.checked
+                              ? [...formData.recurrence_days, day.key]
+                              : formData.recurrence_days.filter((d) => d !== day.key)
+                            setFormData({ ...formData, recurrence_days: newDays })
                           }}
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                         />
-                        <label htmlFor={`master_${day.key}`} className="text-xs text-gray-600 mt-1">
+                        <label
+                          htmlFor={`recurrence_day_${day.key}`}
+                          className="text-xs text-gray-600 mt-1"
+                        >
                           {day.label.slice(0, 3)}
                         </label>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                {/* Individual Collection Schedules */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-medium text-gray-700">Collection Schedules</h4>
-
-                  {/* Garbage Schedule */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-600">Garbage Collection</label>
-                    <div className="grid grid-cols-7 gap-1">
-                      {dayNames.map((day) => (
-                        <div key={day.key} className="flex flex-col items-center">
-                          <input
-                            type="checkbox"
-                            id={`garbage_${day.key}`}
-                            checked={formData.garbage_schedule.includes(day.key)}
-                            onChange={(e) => {
-                              const newSchedule = e.target.checked
-                                ? [...formData.garbage_schedule, day.key]
-                                : formData.garbage_schedule.filter((d) => d !== day.key)
-                              setFormData({ ...formData, garbage_schedule: newSchedule })
-                            }}
-                            className="w-3 h-3 text-red-600 border-gray-300 rounded focus:ring-red-500"
-                          />
-                          <span className="text-xs text-gray-500 mt-1">
-                            {day.label.slice(0, 1)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Recycling Schedule */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-600">
-                      Recycling Collection
-                    </label>
-                    <div className="grid grid-cols-7 gap-1">
-                      {dayNames.map((day) => (
-                        <div key={day.key} className="flex flex-col items-center">
-                          <input
-                            type="checkbox"
-                            id={`recycling_${day.key}`}
-                            checked={formData.recycling_schedule.includes(day.key)}
-                            onChange={(e) => {
-                              const newSchedule = e.target.checked
-                                ? [...formData.recycling_schedule, day.key]
-                                : formData.recycling_schedule.filter((d) => d !== day.key)
-                              setFormData({ ...formData, recycling_schedule: newSchedule })
-                            }}
-                            className="w-3 h-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <span className="text-xs text-gray-500 mt-1">
-                            {day.label.slice(0, 1)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Organics Schedule */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-600">
-                      Organics/Compost Collection
-                    </label>
-                    <div className="grid grid-cols-7 gap-1">
-                      {dayNames.map((day) => (
-                        <div key={day.key} className="flex flex-col items-center">
-                          <input
-                            type="checkbox"
-                            id={`organics_${day.key}`}
-                            checked={formData.organics_schedule.includes(day.key)}
-                            onChange={(e) => {
-                              const newSchedule = e.target.checked
-                                ? [...formData.organics_schedule, day.key]
-                                : formData.organics_schedule.filter((d) => d !== day.key)
-                              setFormData({ ...formData, organics_schedule: newSchedule })
-                            }}
-                            className="w-3 h-3 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                          />
-                          <span className="text-xs text-gray-500 mt-1">
-                            {day.label.slice(0, 1)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Bulk Schedule */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-600">
-                      Bulk Items Collection
-                    </label>
-                    <div className="grid grid-cols-7 gap-1">
-                      {dayNames.map((day) => (
-                        <div key={day.key} className="flex flex-col items-center">
-                          <input
-                            type="checkbox"
-                            id={`bulk_${day.key}`}
-                            checked={formData.bulk_schedule.includes(day.key)}
-                            onChange={(e) => {
-                              const newSchedule = e.target.checked
-                                ? [...formData.bulk_schedule, day.key]
-                                : formData.bulk_schedule.filter((d) => d !== day.key)
-                              setFormData({ ...formData, bulk_schedule: newSchedule })
-                            }}
-                            className="w-3 h-3 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                          />
-                          <span className="text-xs text-gray-500 mt-1">
-                            {day.label.slice(0, 1)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Interior Cleaning Schedule */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-600">Interior Cleaning</label>
-                    <div className="grid grid-cols-7 gap-1">
-                      {dayNames.map((day) => (
-                        <div key={day.key} className="flex flex-col items-center">
-                          <input
-                            type="checkbox"
-                            id={`interior_${day.key}`}
-                            checked={formData.interior_cleaning_schedule.includes(day.key)}
-                            onChange={(e) => {
-                              const newSchedule = e.target.checked
-                                ? [...formData.interior_cleaning_schedule, day.key]
-                                : formData.interior_cleaning_schedule.filter((d) => d !== day.key)
-                              setFormData({
-                                ...formData,
-                                interior_cleaning_schedule: newSchedule,
-                              })
-                            }}
-                            className="w-3 h-3 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                          />
-                          <span className="text-xs text-gray-500 mt-1">
-                            {day.label.slice(0, 1)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Dynamic Manual Schedules */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-medium text-gray-700">
-                        Additional Manual Schedules
-                      </h4>
-                      <button
-                        type="button"
-                        onClick={addManualSchedule}
-                        className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-                      >
-                        + Add Schedule Type
-                      </button>
-                    </div>
-
-                    {formData.manual_schedules.map((schedule) => (
-                      <div
-                        key={schedule.id}
-                        className="space-y-2 p-3 border border-gray-200 rounded-lg"
-                      >
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            placeholder="Schedule name (e.g., Landscaping, Security)"
-                            value={schedule.name}
-                            onChange={(e) =>
-                              updateManualSchedule(schedule.id, 'name', e.target.value)
-                            }
-                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Description"
-                            value={schedule.description}
-                            onChange={(e) =>
-                              updateManualSchedule(schedule.id, 'description', e.target.value)
-                            }
-                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeManualSchedule(schedule.id)}
-                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                          >
-                            Remove
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-7 gap-1">
-                          {dayNames.map((day) => (
-                            <div key={day.key} className="flex flex-col items-center">
-                              <input
-                                type="checkbox"
-                                id={`manual_${schedule.id}_${day.key}`}
-                                checked={schedule.days.includes(day.key)}
-                                onChange={(e) =>
-                                  updateManualScheduleDays(schedule.id, day.key, e.target.checked)
-                                }
-                                className="w-3 h-3 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                              />
-                              <span className="text-xs text-gray-500 mt-1">
-                                {day.label.slice(0, 1)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Schedule View */}
-            {(formData.master_weekly_schedule.length > 0 ||
-              formData.garbage_schedule.length > 0 ||
-              formData.recycling_schedule.length > 0 ||
-              formData.organics_schedule.length > 0 ||
-              formData.bulk_schedule.length > 0 ||
-              formData.interior_cleaning_schedule.length > 0 ||
-              formData.manual_schedules.length > 0) && (
-              <div className="mt-6">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Schedule Preview</h4>
-                <ScheduleView
-                  masterWeeklySchedule={formData.master_weekly_schedule}
-                  garbageSchedule={formData.garbage_schedule}
-                  recyclingSchedule={formData.recycling_schedule}
-                  organicsSchedule={formData.organics_schedule}
-                  bulkSchedule={formData.bulk_schedule}
-                  interiorCleaningSchedule={formData.interior_cleaning_schedule}
-                  manualSchedules={formData.manual_schedules}
-                />
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
-        {/* Payment Terms */}
-        <div className="bg-white p-6 rounded-lg border border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment Terms</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Payment Terms</label>
-              <select
-                value={formData.payment_terms}
-                onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="Net 15">Net 15</option>
-                <option value="Net 30">Net 30</option>
-                <option value="Net 45">Net 45</option>
-                <option value="Net 60">Net 60</option>
-                <option value="Due on Receipt">Due on Receipt</option>
-              </select>
-            </div>
+        {/* Terms Tab */}
+        {activeTab === 'terms' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Terms</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Payment Terms
+                  </label>
+                  <select
+                    value={formData.payment_terms}
+                    onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="Net 15">Net 15</option>
+                    <option value="Net 30">Net 30</option>
+                    <option value="Net 45">Net 45</option>
+                    <option value="Net 60">Net 60</option>
+                    <option value="Due on Receipt">Due on Receipt</option>
+                  </select>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Late Fee Percentage
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                value={formData.late_fee_percentage}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    late_fee_percentage: parseFloat(e.target.value) || 0,
-                  })
-                }
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Late Fee Percentage
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    value={formData.late_fee_percentage}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        late_fee_percentage: parseFloat(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Cancellation Terms
+                  </label>
+                  <textarea
+                    value={formData.cancellation_terms}
+                    onChange={(e) =>
+                      setFormData({ ...formData, cancellation_terms: e.target.value })
+                    }
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Cancellation terms and conditions..."
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Notes Tab */}
+        {activeTab === 'notes' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
+              <textarea
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                onKeyDown={handleNotesKeyDown}
+                rows={5}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Enter notes (Ctrl+Enter for quick submission)"
               />
+              <p className="text-sm text-gray-500 mt-2">Press Ctrl+Enter to save notes</p>
+            </div>
+
+            {/* Activity Section */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Related Items</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="p-4 bg-blue-50 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-600">{relatedItems.jobs.length}</div>
+                  <div className="text-sm text-gray-600">Jobs</div>
+                </div>
+                <div className="p-4 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">
+                    {relatedItems.invoices.length}
+                  </div>
+                  <div className="text-sm text-gray-600">Invoices</div>
+                </div>
+                <div className="p-4 bg-purple-50 rounded-lg">
+                  <div className="text-2xl font-bold text-purple-600">
+                    {relatedItems.proposals.length}
+                  </div>
+                  <div className="text-sm text-gray-600">Proposals</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Activity Log */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Activity Log</h2>
+              {activities.length > 0 ? (
+                <div className="space-y-3">
+                  {activities.map((activity) => (
+                    <div
+                      key={activity.id}
+                      className="flex gap-3 pb-3 border-b border-gray-100 last:border-b-0"
+                    >
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">{activity.description}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {new Date(activity.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500">No activity yet</p>
+              )}
             </div>
           </div>
+        )}
 
-          <div className="mt-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Cancellation Terms
-            </label>
-            <textarea
-              value={formData.cancellation_terms}
-              onChange={(e) => setFormData({ ...formData, cancellation_terms: e.target.value })}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Cancellation terms and conditions..."
-            />
-          </div>
-        </div>
-
-        {/* Additional Notes */}
-        <div className="bg-white p-6 rounded-lg border border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Additional Notes</h2>
-          <textarea
-            value={formData.notes}
-            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            rows={4}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Additional notes or special instructions..."
-          />
-        </div>
-
-        {/* Submit Button */}
-        <div className="flex justify-end gap-4">
-          <button
-            type="button"
-            onClick={() => navigate('/contracts')}
-            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>
+        {/* Submit Buttons */}
+        <div className="flex items-center gap-4 pt-6 border-t border-gray-200">
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
             {saving ? (
               <>
@@ -1337,10 +1195,17 @@ export function ContractEdit() {
               </>
             ) : (
               <>
-                <SaveIcon className="h-4 w-4" />
+                <SaveIcon className="w-4 h-4" />
                 Save Contract
               </>
             )}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/contracts')}
+            className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+          >
+            Cancel
           </button>
         </div>
       </form>

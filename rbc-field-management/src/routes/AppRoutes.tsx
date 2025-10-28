@@ -17,6 +17,9 @@ import PropertyCreate from '../pages/PropertyCreate'
 import PropertyEdit from '../pages/PropertyEdit'
 import PropertyView from '../pages/PropertyView'
 import { Proposals } from '../pages/Proposals'
+import ProposalCreate from '../pages/ProposalCreate'
+import ProposalEdit from '../pages/ProposalEdit'
+import ProposalView from '../pages/ProposalView'
 import { Contracts } from '../pages/Contracts'
 import { ContractCreate } from '../pages/ContractCreate'
 import { ContractDetails } from '../pages/ContractDetails'
@@ -299,6 +302,9 @@ export function AppRoutes() {
                 <Route path="/properties/edit/:id" element={<PropertyEdit />} />
                 <Route path="/properties/view/:id" element={<PropertyView />} />
                 <Route path="/proposals" element={<Proposals />} />
+                <Route path="/proposals/create" element={<ProposalCreate />} />
+                <Route path="/proposals/edit/:id" element={<ProposalEdit />} />
+                <Route path="/proposals/view/:id" element={<ProposalView />} />
                 <Route path="/contracts" element={<Contracts />} />
                 <Route path="/contracts/create" element={<ContractCreate />} />
                 <Route path="/contracts/details/:id" element={<ContractDetails />} />

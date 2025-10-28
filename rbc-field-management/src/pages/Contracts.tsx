@@ -433,7 +433,12 @@ export function Contracts() {
                   <tr key={contract.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
-                        <div className="text-sm font-medium text-gray-900">{contract.title}</div>
+                        <button
+                          onClick={() => viewContract(contract.id)}
+                          className="text-sm font-medium text-gray-900 hover:text-blue-600 hover:underline text-left"
+                        >
+                          {contract.title}
+                        </button>
                         <div className="text-sm text-gray-500">#{contract.contract_number}</div>
                         {contract.proposal && (
                           <div className="text-xs text-gray-400">
@@ -485,22 +490,8 @@ export function Contracts() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => viewContract(contract.id)}
-                          className="p-1 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-md transition-colors"
-                          title="View Contract"
-                        >
-                          <EyeIcon className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => editContract(contract.id)}
-                          className="p-1 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors"
-                          title="Edit Contract"
-                        >
-                          <EditIcon className="w-4 h-4" />
-                        </button>
                         {contract.is_recurring && (
                           <button
                             onClick={() => viewSchedule(contract)}
@@ -519,9 +510,6 @@ export function Contracts() {
                             <PlayIcon className="w-4 h-4" />
                           </button>
                         )}
-                        <button className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-md transition-colors">
-                          <MoreHorizontalIcon className="w-4 h-4" />
-                        </button>
                       </div>
                     </td>
                   </tr>

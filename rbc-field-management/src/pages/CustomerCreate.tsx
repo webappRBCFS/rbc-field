@@ -184,6 +184,64 @@ export default function CustomerCreate() {
     'Other Space',
   ]
 
+  // Validation and navigation
+  const validateTab = (tab: 'company' | 'contacts' | 'properties' | 'notes'): boolean => {
+    switch (tab) {
+      case 'company':
+        return !!companyData.name
+      case 'contacts':
+        return true // Contacts are optional
+      case 'properties':
+        return true // Properties are optional
+      case 'notes':
+        return true // Notes are optional
+      default:
+        return false
+    }
+  }
+
+  const handleNext = () => {
+    if (!validateTab(activeTab)) {
+      alert('Please fill in all required fields before continuing')
+      return
+    }
+
+    const tabs: Array<'company' | 'contacts' | 'properties' | 'notes'> = [
+      'company',
+      'contacts',
+      'properties',
+      'notes',
+    ]
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex < tabs.length - 1) {
+      setActiveTab(tabs[currentIndex + 1])
+    }
+  }
+
+  const handleBack = () => {
+    const tabs: Array<'company' | 'contacts' | 'properties' | 'notes'> = [
+      'company',
+      'contacts',
+      'properties',
+      'notes',
+    ]
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex > 0) {
+      setActiveTab(tabs[currentIndex - 1])
+    }
+  }
+
+  const onSubmit = async () => {
+    setLoading(true)
+    try {
+      await handleSubmit({ preventDefault: () => {} } as any)
+    } catch (error) {
+      console.error('Error:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -279,50 +337,50 @@ export default function CustomerCreate() {
           {/* Tab Navigation */}
           <div className="bg-white rounded-lg border border-gray-200">
             <div className="flex border-b border-gray-200">
-              <button
-                type="button"
-                onClick={() => setActiveTab('company')}
-                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+              <div
+                className={`flex-1 px-6 py-3 text-sm font-medium ${
                   activeTab === 'company'
                     ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'contacts' ||
+                      activeTab === 'properties' ||
+                      activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 Company
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('contacts')}
-                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+              </div>
+              <div
+                className={`flex-1 px-6 py-3 text-sm font-medium ${
                   activeTab === 'contacts'
                     ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'properties' || activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 Contacts
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('properties')}
-                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+              </div>
+              <div
+                className={`flex-1 px-6 py-3 text-sm font-medium ${
                   activeTab === 'properties'
                     ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 Properties
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('notes')}
-                className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
+              </div>
+              <div
+                className={`flex-1 px-6 py-3 text-sm font-medium ${
                   activeTab === 'notes'
                     ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : 'text-gray-400'
                 }`}
               >
                 Notes & Management
-              </button>
+              </div>
             </div>
             <div className="p-6">
               {/* Company Tab */}
@@ -851,23 +909,58 @@ export default function CustomerCreate() {
             </div>
           </div>
 
-          {/* Submit Buttons */}
-          <div className="flex gap-3">
+          {/* Navigation Buttons */}
+          <div className="flex items-center justify-between gap-4 pt-6 border-t border-gray-200">
+            {/* Left side: Cancel button */}
             <button
               type="button"
               onClick={() => navigate('/customers')}
-              className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              <PlusIcon className="w-5 h-5" />
-              {loading ? 'Creating...' : 'Create Customer'}
-            </button>
+
+            {/* Right side: Back and Next/Create buttons */}
+            <div className="flex gap-3">
+              {activeTab !== 'company' && (
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                >
+                  Back
+                </button>
+              )}
+              {activeTab === 'notes' ? (
+                <button
+                  type="button"
+                  onClick={onSubmit}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Creating Customer...
+                    </>
+                  ) : (
+                    <>
+                      <PlusIcon className="w-4 h-4" />
+                      Create Customer
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={!validateTab(activeTab)}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>

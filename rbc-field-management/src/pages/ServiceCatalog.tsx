@@ -39,9 +39,10 @@ interface ServiceItem {
   is_active: boolean
   created_at: string
   updated_at: string
-  service_category?: {
+  categories?: {
     id: string
     name: string
+    operational_division_id?: string
   }
 }
 
@@ -110,20 +111,13 @@ export function ServiceCatalog() {
       const { data: categoriesData } = await categoriesQuery
       setCategories(categoriesData || [])
 
-      // Fetch service items with category info
-      let itemsQuery = supabase
-        .from('service_items')
-        .select(
-          `
-          *,
-          service_category:service_categories(id, name)
-        `
-        )
-        .order('name')
+      // Fetch service items separately to avoid ambiguous relationship error
+      let itemsQuery = supabase.from('service_items').select('*').order('name')
 
       if (currentDivision) {
         // Filter items by division through their category
         const categoryIds = categoriesData?.map((c) => c.id) || []
+        console.log('Current division:', currentDivision.name, 'Category IDs:', categoryIds)
         if (categoryIds.length > 0) {
           itemsQuery = itemsQuery.in('service_category_id', categoryIds)
         } else {
@@ -131,8 +125,25 @@ export function ServiceCatalog() {
         }
       }
 
-      const { data: itemsData } = await itemsQuery
-      setServiceItems(itemsData || [])
+      const { data: itemsData, error: itemsError } = await itemsQuery
+
+      if (itemsError) {
+        console.error('Error fetching service items:', itemsError)
+      }
+
+      console.log('Fetched service items:', itemsData)
+      console.log('Total items fetched:', itemsData?.length || 0)
+
+      // Manually attach category info to each item
+      const itemsWithCategories = (itemsData || []).map((item) => {
+        const category = categoriesData?.find((c) => c.id === item.service_category_id)
+        return {
+          ...item,
+          categories: category,
+        }
+      })
+
+      setServiceItems(itemsWithCategories)
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
@@ -186,7 +197,28 @@ export function ServiceCatalog() {
 
   const handleItemSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Validation
+    if (!itemForm.service_category_id) {
+      alert('Please select a category')
+      return
+    }
+    if (!itemForm.name) {
+      alert('Please enter a name')
+      return
+    }
+    if (!itemForm.unit_type) {
+      alert('Please select a unit type')
+      return
+    }
+    if (!itemForm.base_price) {
+      alert('Please enter a base price')
+      return
+    }
+
     try {
+      console.log('Submitting service item:', itemForm)
+
       const itemData = {
         service_category_id: itemForm.service_category_id,
         name: itemForm.name,
@@ -197,17 +229,63 @@ export function ServiceCatalog() {
         updated_at: new Date().toISOString(),
       }
 
+      console.log('Item data to save:', itemData)
+
+      let error
       if (editingItem) {
-        const { error } = await supabase
+        console.log('Updating service item:', editingItem.id)
+        const result = await supabase
           .from('service_items')
           .update(itemData)
           .eq('id', editingItem.id)
-
-        if (error) throw error
+        error = result.error
       } else {
-        const { error } = await supabase.from('service_items').insert([itemData])
+        console.log('Inserting new service item')
+        const result = await supabase.from('service_items').insert([itemData])
+        error = result.error
+      }
 
-        if (error) throw error
+      if (error) {
+        console.error('Supabase error:', error)
+        alert(`Error: ${error.message}\nDetails: ${error.details || 'No details'}`)
+        throw error
+      }
+
+      console.log('Service item saved successfully')
+
+      // Fetch the newly created item to add it to the list
+      if (!editingItem) {
+        const { data: newItem, error: fetchError } = await supabase
+          .from('service_items')
+          .select('*')
+          .eq('service_category_id', itemForm.service_category_id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (!fetchError && newItem) {
+          console.log('Fetched new item:', newItem)
+
+          // Attach category info manually
+          const category = categories.find((c) => c.id === itemForm.service_category_id)
+          const itemWithCategory = {
+            ...newItem,
+            categories: category,
+          }
+
+          console.log('Category for new item:', category)
+
+          // If no division filter or category matches division, add to list
+          if (
+            !currentDivision ||
+            (category && category.operational_division_id === currentDivision.id)
+          ) {
+            console.log('Adding new item to the list')
+            setServiceItems((prev) => [itemWithCategory, ...prev])
+          } else {
+            console.log('Item not added to list due to division filter')
+          }
+        }
       }
 
       setShowItemForm(false)
@@ -220,10 +298,18 @@ export function ServiceCatalog() {
         base_price: '',
         is_active: true,
       })
-      await fetchData()
+
+      // Only refetch if we're editing (to update the item in place)
+      if (editingItem) {
+        await fetchData()
+      }
+
+      alert('Service item saved successfully!')
     } catch (error) {
       console.error('Error saving service item:', error)
-      alert('Failed to save service item. Please try again.')
+      alert(
+        `Failed to save service item: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
     }
   }
 
@@ -513,9 +599,9 @@ export function ServiceCatalog() {
                         {item.description && (
                           <p className="mt-1 text-sm text-gray-600">{item.description}</p>
                         )}
-                        {item.service_category && (
+                        {item.categories && (
                           <p className="mt-1 text-sm text-gray-500">
-                            Category: {item.service_category.name}
+                            Category: {item.categories.name}
                           </p>
                         )}
                       </div>

@@ -122,6 +122,64 @@ export default function PropertyCreate() {
     })
   }
 
+  // Validation and navigation
+  const validateTab = (tab: 'address' | 'info' | 'payment' | 'notes'): boolean => {
+    switch (tab) {
+      case 'address':
+        return !!(propertyData.customer_id && propertyData.name && propertyData.address)
+      case 'info':
+        return !!propertyData.building_type
+      case 'payment':
+        return !!(propertyData.payment_method && propertyData.sales_tax_status)
+      case 'notes':
+        return true // Notes are optional
+      default:
+        return false
+    }
+  }
+
+  const handleNext = () => {
+    if (!validateTab(activeTab)) {
+      alert('Please fill in all required fields before continuing')
+      return
+    }
+
+    const tabs: Array<'address' | 'info' | 'payment' | 'notes'> = [
+      'address',
+      'info',
+      'payment',
+      'notes',
+    ]
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex < tabs.length - 1) {
+      setActiveTab(tabs[currentIndex + 1])
+    }
+  }
+
+  const handleBack = () => {
+    const tabs: Array<'address' | 'info' | 'payment' | 'notes'> = [
+      'address',
+      'info',
+      'payment',
+      'notes',
+    ]
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex > 0) {
+      setActiveTab(tabs[currentIndex - 1])
+    }
+  }
+
+  const onSubmit = async () => {
+    setLoading(true)
+    try {
+      await handleSubmit({ preventDefault: () => {} } as any)
+    } catch (error) {
+      console.error('Error:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -234,50 +292,48 @@ export default function PropertyCreate() {
           {/* Tab Navigation */}
           <div className="bg-white rounded-lg border border-gray-200">
             <div className="flex border-b border-gray-200">
-              <button
-                type="button"
-                onClick={() => setActiveTab('address')}
-                className={`px-6 py-3 text-sm font-medium transition-colors ${
+              <div
+                className={`px-6 py-3 text-sm font-medium ${
                   activeTab === 'address'
                     ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'info' || activeTab === 'payment' || activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 Address
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('info')}
-                className={`px-6 py-3 text-sm font-medium transition-colors ${
+              </div>
+              <div
+                className={`px-6 py-3 text-sm font-medium ${
                   activeTab === 'info'
                     ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'payment' || activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 Info
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('payment')}
-                className={`px-6 py-3 text-sm font-medium transition-colors ${
+              </div>
+              <div
+                className={`px-6 py-3 text-sm font-medium ${
                   activeTab === 'payment'
                     ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
                 }`}
               >
                 Payment and Sales Tax
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('notes')}
-                className={`px-6 py-3 text-sm font-medium transition-colors ${
+              </div>
+              <div
+                className={`px-6 py-3 text-sm font-medium ${
                   activeTab === 'notes'
                     ? 'border-b-2 border-blue-600 text-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : 'text-gray-400'
                 }`}
               >
                 Notes and Activity
-              </button>
+              </div>
             </div>
             <div className="p-6">
               {/* Address Tab */}
@@ -626,22 +682,58 @@ export default function PropertyCreate() {
             </div>
           </div>
 
-          {/* Submit Buttons */}
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Creating...' : 'Create Property'}
-            </button>
+          {/* Navigation Buttons */}
+          <div className="flex items-center justify-between gap-4 pt-6 border-t border-gray-200">
+            {/* Left side: Cancel button */}
             <button
               type="button"
               onClick={() => navigate('/properties')}
-              className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
             >
               Cancel
             </button>
+
+            {/* Right side: Back and Next/Create buttons */}
+            <div className="flex gap-3">
+              {activeTab !== 'address' && (
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                >
+                  Back
+                </button>
+              )}
+              {activeTab === 'notes' ? (
+                <button
+                  type="button"
+                  onClick={onSubmit}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Creating Property...
+                    </>
+                  ) : (
+                    <>
+                      <PlusIcon className="w-4 h-4" />
+                      Create Property
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={!validateTab(activeTab)}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>

@@ -37,6 +37,20 @@ interface ServiceCategory {
   operational_division_id: string
 }
 
+interface ServiceItem {
+  id: string
+  service_category_id: string
+  name: string
+  description?: string
+  unit_type: string
+  base_price: number
+  is_active: boolean
+  categories?: {
+    id: string
+    name: string
+  }
+}
+
 export function ContractCreate() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
@@ -44,14 +58,54 @@ export function ContractCreate() {
   const [properties, setProperties] = useState<Property[]>([])
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([])
+  const [serviceItems, setServiceItems] = useState<ServiceItem[]>([])
+  const [maintenanceDSNYCategoryId, setMaintenanceDSNYCategoryId] = useState<string>('')
   const [filteredProposals, setFilteredProposals] = useState<Proposal[]>([])
   const [showCreateCustomer, setShowCreateCustomer] = useState(false)
   const [showCreateProperty, setShowCreateProperty] = useState(false)
+  const [showAddServiceModal, setShowAddServiceModal] = useState(false)
+
+  // Add Service Modal state
+  const [newService, setNewService] = useState({
+    service_type: '',
+    service_name: '',
+    amount: 0,
+    recurrence_type: 'weekly',
+    recurrence_days: [] as number[],
+    dsny_integration: false,
+    // DSNY schedules
+    garbage_schedule: [] as number[],
+    recycling_schedule: [] as number[],
+    organics_schedule: [] as number[],
+    bulk_schedule: [] as number[],
+    interior_cleaning_schedule: [] as number[],
+  })
+
+  // Services with individual schedules
+  const [contractServices, setContractServices] = useState<
+    Array<{
+      id: string
+      service_type: string
+      service_name: string
+      amount: number
+      is_maintenance: boolean
+      schedule: {
+        recurrence_type: string
+        recurrence_days: number[]
+        dsny_integration: boolean
+        garbage_schedule: number[]
+        recycling_schedule: number[]
+        organics_schedule: number[]
+        bulk_schedule: number[]
+        interior_cleaning_schedule: number[]
+      }
+    }>
+  >([])
 
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    contract_type: 'one_time' as 'one_time' | 'recurring',
+    contract_type: '', // Changed to empty string - will be set by template dropdown
     service_type: '',
     customer_id: '',
     property_id: '',
@@ -96,6 +150,38 @@ export function ContractCreate() {
     fetchData()
   }, [])
 
+  // Update total amount when services change
+  useEffect(() => {
+    const total = contractServices.reduce((sum, service) => sum + service.amount, 0)
+    setFormData((prev) => ({ ...prev, total_amount: total }))
+  }, [contractServices])
+
+  // Auto-generate contract title from property address and template type (contract_type)
+  useEffect(() => {
+    if (formData.property_id && formData.contract_type) {
+      const selectedProperty = properties.find((p) => p.id === formData.property_id)
+      if (selectedProperty?.address) {
+        const streetAddress = selectedProperty.address.split(',')[0].trim()
+        // Capitalize first letter of each word in contract type
+        const contractType = formData.contract_type
+          .split('_')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ')
+
+        setFormData((prev) => ({
+          ...prev,
+          title: `${streetAddress} - ${contractType}`,
+        }))
+      }
+    } else if (!formData.property_id || !formData.contract_type) {
+      // Clear title if property or template type is not selected
+      setFormData((prev) => ({
+        ...prev,
+        title: '',
+      }))
+    }
+  }, [formData.property_id, formData.contract_type, properties])
+
   useEffect(() => {
     if (formData.customer_id) {
       const customerProposals = proposals.filter((p) => p.customer_id === formData.customer_id)
@@ -134,10 +220,42 @@ export function ContractCreate() {
         .select('id, name, operational_division_id')
         .order('name')
 
+      // Fetch service items
+      const { data: serviceItemsData } = await supabase
+        .from('service_items')
+        .select('*')
+        .eq('is_active', true)
+        .order('name')
+
+      // Manually attach category info to service items
+      const itemsWithCategories = (serviceItemsData || []).map((item) => {
+        const category = serviceCategoriesData?.find((c) => c.id === item.service_category_id)
+        return {
+          ...item,
+          categories: category,
+        }
+      })
+
+      // Find the "Maintenance - DSNY" category ID - must match exactly
+      const maintenanceDSNY = serviceCategoriesData?.find(
+        (cat) => cat.name.toLowerCase() === 'maintenance - dsny'
+      )
+      if (maintenanceDSNY) {
+        console.log('Found Maintenance - DSNY category with ID:', maintenanceDSNY.id)
+        setMaintenanceDSNYCategoryId(maintenanceDSNY.id)
+      } else {
+        console.log('Maintenance - DSNY category not found')
+        console.log(
+          'Available categories:',
+          serviceCategoriesData?.map((c) => c.name)
+        )
+      }
+
       setCustomers(customersData || [])
       setProperties(propertiesData || [])
       setProposals(proposalsData || [])
       setServiceCategories(serviceCategoriesData || [])
+      setServiceItems(itemsWithCategories)
 
       // Debug logging
       console.log('Fetched data:', {
@@ -462,8 +580,132 @@ export function ContractCreate() {
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleAddService = () => {
+    if (!newService.service_type || !newService.service_name || newService.amount <= 0) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    const selectedCategory = serviceCategories.find((c) => c.id === newService.service_type)
+    const isMaintenance = selectedCategory?.name?.toLowerCase().includes('dsny') || false
+
+    const service = {
+      id: `service_${Date.now()}`,
+      service_type: newService.service_type,
+      service_name: newService.service_name,
+      amount: newService.amount,
+      is_maintenance: isMaintenance,
+      schedule: {
+        recurrence_type: newService.recurrence_type,
+        recurrence_days: newService.recurrence_days,
+        dsny_integration: newService.dsny_integration && isMaintenance,
+        garbage_schedule: [],
+        recycling_schedule: [],
+        organics_schedule: [],
+        bulk_schedule: [],
+        interior_cleaning_schedule: [],
+      },
+    }
+
+    setContractServices([...contractServices, service])
+    setNewService({
+      service_type: '',
+      service_name: '',
+      amount: 0,
+      recurrence_type: 'weekly',
+      recurrence_days: [],
+      dsny_integration: false,
+      garbage_schedule: [],
+      recycling_schedule: [],
+      organics_schedule: [],
+      bulk_schedule: [],
+      interior_cleaning_schedule: [],
+    })
+    setShowAddServiceModal(false)
+  }
+
+  const isMaintenanceServiceById = (serviceItemId: string) => {
+    const selectedItem = serviceItems.find((item) => item.id === serviceItemId)
+
+    if (!selectedItem) {
+      console.log('Service item not found for ID:', serviceItemId)
+      return false
+    }
+
+    if (!selectedItem.categories) {
+      console.log('Service item has no category:', selectedItem.name)
+      return false
+    }
+
+    if (!maintenanceDSNYCategoryId) {
+      console.log('Maintenance - DSNY category ID not set')
+      return false
+    }
+
+    const isDSNY = selectedItem.service_category_id === maintenanceDSNYCategoryId
+    console.log('Checking DSNY integration for:', selectedItem.name, {
+      itemCategoryId: selectedItem.service_category_id,
+      itemCategoryName: selectedItem.categories.name,
+      maintenanceDSNYId: maintenanceDSNYCategoryId,
+      matches: isDSNY,
+    })
+
+    return isDSNY
+  }
+
+  // Validation and navigation
+  const validateTab = (tab: 'overview' | 'services' | 'billing' | 'notes'): boolean => {
+    switch (tab) {
+      case 'overview':
+        return !!(
+          formData.customer_id &&
+          formData.property_id &&
+          formData.contract_type &&
+          formData.title
+        )
+      case 'services':
+        return contractServices.length > 0
+      case 'billing':
+        return formData.billing_frequency !== '' && formData.payment_terms !== ''
+      case 'notes':
+        return true // Notes are optional
+      default:
+        return false
+    }
+  }
+
+  const handleNext = () => {
+    if (!validateTab(activeTab)) {
+      alert('Please fill in all required fields before continuing')
+      return
+    }
+
+    const tabs: Array<'overview' | 'services' | 'billing' | 'notes'> = [
+      'overview',
+      'services',
+      'billing',
+      'notes',
+    ]
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex < tabs.length - 1) {
+      setActiveTab(tabs[currentIndex + 1])
+    }
+  }
+
+  const handleBack = () => {
+    const tabs: Array<'overview' | 'services' | 'billing' | 'notes'> = [
+      'overview',
+      'services',
+      'billing',
+      'notes',
+    ]
+    const currentIndex = tabs.indexOf(activeTab)
+    if (currentIndex > 0) {
+      setActiveTab(tabs[currentIndex - 1])
+    }
+  }
+
+  const handleSubmit = async () => {
     setLoading(true)
 
     try {
@@ -511,6 +753,42 @@ export function ContractCreate() {
       }
 
       console.log('Contract created successfully:', data)
+
+      // Save contract services if any exist
+      if (contractServices.length > 0 && data?.id) {
+        try {
+          console.log('Saving contract services:', contractServices)
+
+          const serviceInserts = contractServices.map((service) => ({
+            contract_id: data.id,
+            service_type_id: service.service_type,
+            service_name: service.service_name,
+            amount: service.amount,
+            recurrence_type: service.schedule.recurrence_type,
+            recurrence_days: service.schedule.recurrence_days,
+            dsny_integration: service.schedule.dsny_integration,
+            garbage_schedule: service.schedule.garbage_schedule,
+            recycling_schedule: service.schedule.recycling_schedule,
+            organics_schedule: service.schedule.organics_schedule,
+            bulk_schedule: service.schedule.bulk_schedule,
+            interior_cleaning_schedule: service.schedule.interior_cleaning_schedule,
+          }))
+
+          const { error: servicesError } = await supabase
+            .from('contract_services')
+            .insert(serviceInserts)
+
+          if (servicesError) {
+            console.error('Error saving contract services:', servicesError)
+            throw servicesError
+          }
+
+          console.log('Contract services saved successfully')
+        } catch (servicesError) {
+          console.error('Error saving services:', servicesError)
+          // Don't fail the whole operation, just log the error
+        }
+      }
 
       // If contract was created from a proposal linked to a lead, convert lead to customer
       if (contractData.proposal_id) {
@@ -573,6 +851,10 @@ export function ContractCreate() {
     { key: 6, label: 'Saturday' },
   ]
 
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'billing' | 'notes'>(
+    'overview'
+  )
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
@@ -591,709 +873,441 @@ export function ContractCreate() {
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <form onSubmit={handleSubmit} className="p-6 space-y-6">
-            {/* Contract Source */}
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900">Contract Source</h2>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Create from Proposal (Optional)
-                </label>
-                <select
-                  value={formData.proposal_id}
-                  onChange={(e) => handleProposalSelect(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select a proposal...</option>
-                  {filteredProposals.map((proposal) => (
-                    <option key={proposal.id} value={proposal.id}>
-                      {proposal.proposal_number} - {proposal.title}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Selecting a proposal will auto-fill customer, property, and amount details
-                </p>
+          {/* Tab Navigation - Read-only display */}
+          <div className="border-b border-gray-200">
+            <div className="flex">
+              <div
+                className={`px-6 py-3 text-sm font-medium ${
+                  activeTab === 'overview'
+                    ? 'border-b-2 border-blue-600 text-blue-600'
+                    : 'text-gray-400'
+                }`}
+              >
+                Overview
+              </div>
+              <div
+                className={`px-6 py-3 text-sm font-medium ${
+                  activeTab === 'services'
+                    ? 'border-b-2 border-blue-600 text-blue-600'
+                    : activeTab === 'billing' || activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
+                }`}
+              >
+                Services & Schedule
+              </div>
+              <div
+                className={`px-6 py-3 text-sm font-medium ${
+                  activeTab === 'billing'
+                    ? 'border-b-2 border-blue-600 text-blue-600'
+                    : activeTab === 'notes'
+                    ? 'text-blue-600'
+                    : 'text-gray-400'
+                }`}
+              >
+                Billing & Financials
+              </div>
+              <div
+                className={`px-6 py-3 text-sm font-medium ${
+                  activeTab === 'notes'
+                    ? 'border-b-2 border-blue-600 text-blue-600'
+                    : 'text-gray-400'
+                }`}
+              >
+                Notes
               </div>
             </div>
+          </div>
 
-            {/* Basic Information */}
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900">Basic Information</h2>
+          <div className="p-6">
+            {/* Overview Tab */}
+            {activeTab === 'overview' && (
+              <div className="space-y-6">
+                {/* Two Column Layout: Customer/Property on left, Template/Proposal on right */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Left Column: Customer & Property */}
+                  <div className="flex flex-col justify-between">
+                    <div className="space-y-6">
+                      <div className="space-y-4">
+                        <h2 className="text-lg font-semibold text-gray-900">Customer & Property</h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contract Title *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter contract title"
-                  />
-                </div>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Customer *
+                            </label>
+                            <div className="flex gap-2">
+                              <select
+                                required
+                                value={formData.customer_id}
+                                onChange={(e) =>
+                                  setFormData({
+                                    ...formData,
+                                    customer_id: e.target.value,
+                                    property_id: '',
+                                  })
+                                }
+                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              >
+                                <option value="">Select customer...</option>
+                                {customers.map((customer) => (
+                                  <option key={customer.id} value={customer.id}>
+                                    {customer.company_name ||
+                                      `${customer.contact_first_name} ${customer.contact_last_name}`}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setShowCreateCustomer(true)}
+                                className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+                              >
+                                + New
+                              </button>
+                            </div>
+                          </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contract Type *
-                  </label>
-                  <select
-                    required
-                    value={formData.contract_type}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        contract_type: e.target.value as 'one_time' | 'recurring',
-                        is_recurring: e.target.value === 'recurring',
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="one_time">One Time</option>
-                    <option value="recurring">Recurring</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter contract description"
-                />
-              </div>
-            </div>
-
-            {/* Customer and Property */}
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900">Customer & Property</h2>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Customer *</label>
-                  <div className="flex gap-2">
-                    <select
-                      required
-                      value={formData.customer_id}
-                      onChange={(e) =>
-                        setFormData({ ...formData, customer_id: e.target.value, property_id: '' })
-                      }
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select customer...</option>
-                      {customers.map((customer) => (
-                        <option key={customer.id} value={customer.id}>
-                          {customer.company_name ||
-                            `${customer.contact_first_name} ${customer.contact_last_name}`}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateCustomer(true)}
-                      className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
-                    >
-                      + New
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Property *</label>
-                  <div className="flex gap-2">
-                    <select
-                      required
-                      value={formData.property_id}
-                      onChange={(e) => setFormData({ ...formData, property_id: e.target.value })}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      disabled={!formData.customer_id}
-                    >
-                      <option value="">Select property...</option>
-                      {properties
-                        .filter((p) => p.customer_id === formData.customer_id)
-                        .map((property) => (
-                          <option key={property.id} value={property.id}>
-                            {property.name || property.address}
-                          </option>
-                        ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateProperty(true)}
-                      className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
-                      disabled={!formData.customer_id}
-                    >
-                      + New
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Service Details */}
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900">Service Details</h2>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Service Type
-                  </label>
-                  <select
-                    value={formData.service_type}
-                    onChange={(e) => setFormData({ ...formData, service_type: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select service type...</option>
-                    {serviceCategories.map((category) => (
-                      <option key={category.id} value={category.name}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Total Amount
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.total_amount}
-                    onChange={(e) =>
-                      setFormData({ ...formData, total_amount: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Recurring Schedule - Only for recurring contracts */}
-            {formData.is_recurring && (
-              <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-gray-900">Recurring Schedule</h2>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Recurrence Type
-                    </label>
-                    <select
-                      value={formData.recurrence_type}
-                      onChange={(e) =>
-                        setFormData({ ...formData, recurrence_type: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="weekly">Weekly</option>
-                      <option value="monthly">Monthly</option>
-                      <option value="custom">Custom Days</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Billing Frequency
-                    </label>
-                    <select
-                      value={formData.billing_frequency}
-                      onChange={(e) =>
-                        setFormData({ ...formData, billing_frequency: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="one_time">One Time</option>
-                      <option value="weekly">Weekly</option>
-                      <option value="bi_weekly">Bi-Weekly</option>
-                      <option value="monthly">Monthly</option>
-                      <option value="quarterly">Quarterly</option>
-                      <option value="annually">Annually</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Recurring Days */}
-                {formData.recurrence_type === 'custom' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Recurring Days
-                    </label>
-                    <div className="grid grid-cols-7 gap-2">
-                      {dayNames.map((day) => (
-                        <div key={day.key} className="flex flex-col items-center gap-1">
-                          <input
-                            type="checkbox"
-                            id={`day_${day.key}`}
-                            checked={formData.recurrence_days.includes(day.key)}
-                            onChange={(e) => {
-                              const newDays = e.target.checked
-                                ? [...formData.recurrence_days, day.key]
-                                : formData.recurrence_days.filter((d) => d !== day.key)
-                              setFormData({ ...formData, recurrence_days: newDays })
-                            }}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <label htmlFor={`day_${day.key}`} className="text-xs text-gray-600">
-                            {day.label.slice(0, 3)}
-                          </label>
+                          <div className="pt-[27px]">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Property *
+                            </label>
+                            <div className="flex gap-2">
+                              <select
+                                required
+                                value={formData.property_id}
+                                onChange={(e) =>
+                                  setFormData({ ...formData, property_id: e.target.value })
+                                }
+                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                disabled={!formData.customer_id}
+                              >
+                                <option value="">Select property...</option>
+                                {properties
+                                  .filter((p) => p.customer_id === formData.customer_id)
+                                  .map((property) => (
+                                    <option key={property.id} value={property.id}>
+                                      {property.name || property.address}
+                                    </option>
+                                  ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setShowCreateProperty(true)}
+                                className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+                                disabled={!formData.customer_id}
+                              >
+                                + New
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      ))}
+                      </div>
+                    </div>
+                    {/* Spacer to align with right column height */}
+                    <div className="flex-grow"></div>
+                  </div>
+
+                  {/* Right Column: Template Type & Proposal Selection */}
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <h2 className="text-lg font-semibold text-gray-900">
+                        Contract Type & Proposal
+                      </h2>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Template Type *
+                          </label>
+                          <select
+                            required
+                            value={formData.contract_type}
+                            onChange={(e) => {
+                              const newType = e.target.value
+                              setFormData({
+                                ...formData,
+                                contract_type: newType,
+                                is_recurring: newType === 'recurring',
+                              })
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="">Please select...</option>
+                            <option value="maintenance">Maintenance</option>
+                            <option value="cleaning">Cleaning</option>
+                            <option value="landscaping">Landscaping</option>
+                            <option value="security">Security</option>
+                            <option value="custom">Custom</option>
+                          </select>
+                          <p className="text-xs text-gray-500 mt-1">
+                            This determines the template used when printing the contract
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Create from Proposal (Optional)
+                          </label>
+                          <select
+                            value={formData.proposal_id}
+                            onChange={(e) => handleProposalSelect(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="">Select a proposal...</option>
+                            {filteredProposals.map((proposal) => (
+                              <option key={proposal.id} value={proposal.id}>
+                                {proposal.proposal_number} - {proposal.title}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Selecting a proposal will auto-fill service details and amount
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                )}
+                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Contract Information - Below the two columns */}
+                <div className="space-y-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Contract Information</h2>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Start Date
+                      Contract Title *
                     </label>
                     <input
-                      type="date"
-                      value={formData.start_date}
-                      onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                      type="text"
+                      required
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="e.g., 149 Skillman Street - Maintenance"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Format:{' '}
+                      {properties.find((p) => p.id === formData.property_id)?.address ||
+                        'Property Address'}{' '}
+                      - {formData.service_type || 'Service Type'}
+                    </p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
-                    <input
-                      type="date"
-                      value={formData.end_date}
-                      onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Description
+                    </label>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      rows={3}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter contract description"
                     />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* DSNY Integration - Only for Maintenance Services */}
-            {(() => {
-              const isMaintenance = isMaintenanceService()
-              const isRecurring = formData.is_recurring
-              console.log('ContractCreate - DSNY section conditions:', {
-                isMaintenance,
-                isRecurring,
-                serviceType: formData.service_type,
-                contractType: formData.contract_type,
-              })
-              return isMaintenance && isRecurring
-            })() && (
-              <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-gray-900">DSNY Integration</h2>
-
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="dsny_integration"
-                    checked={formData.dsny_integration}
-                    onChange={(e) =>
-                      setFormData({ ...formData, dsny_integration: e.target.checked })
-                    }
-                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                  />
-                  <label htmlFor="dsny_integration" className="text-sm font-medium text-gray-700">
-                    Sync with DSNY pickup schedule
-                  </label>
+            {/* Services & Schedule Tab */}
+            {activeTab === 'services' && (
+              <div className="space-y-6">
+                {/* Contract Type */}
+                <div className="bg-white p-6 rounded-lg border border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Type</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Type *</label>
+                      <select
+                        required
+                        value={formData.contract_type}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            contract_type: e.target.value as 'one_time' | 'recurring',
+                            is_recurring: e.target.value === 'recurring',
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="one_time">One Time</option>
+                        <option value="recurring">Recurring</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
-                {formData.dsny_integration && (
-                  <div className="space-y-6 pl-6 border-l-2 border-green-200">
-                    {/* DSNY Fetch Button */}
-                    <div>
-                      <button
-                        type="button"
-                        onClick={handleDSNYFetch}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Fetch DSNY Schedule
-                      </button>
-                      <p className="text-sm text-blue-700 mt-1">
-                        Automatically fetch all collection schedules (garbage, recycling, organics,
-                        bulk) based on DSNY pickup days
-                      </p>
-                    </div>
-
-                    {/* Master Weekly Schedule */}
-                    <div className="space-y-3">
-                      <h4 className="text-sm font-medium text-gray-700">
-                        Master Weekly Schedule (Days We Visit)
-                      </h4>
-                      <div className="grid grid-cols-7 gap-2">
-                        {dayNames.map((day) => (
-                          <div key={day.key} className="flex flex-col items-center">
-                            <input
-                              type="checkbox"
-                              id={`master_${day.key}`}
-                              checked={formData.master_weekly_schedule.includes(day.key)}
-                              onChange={(e) => {
-                                const newSchedule = e.target.checked
-                                  ? [...formData.master_weekly_schedule, day.key]
-                                  : formData.master_weekly_schedule.filter((d) => d !== day.key)
-                                setFormData({
-                                  ...formData,
-                                  master_weekly_schedule: newSchedule,
-                                  recurrence_days: newSchedule,
-                                })
-                              }}
-                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                            />
-                            <label
-                              htmlFor={`master_${day.key}`}
-                              className="text-xs text-gray-600 mt-1"
-                            >
-                              {day.label.slice(0, 3)}
-                            </label>
-                          </div>
-                        ))}
+                {/* Services List */}
+                <div className="bg-white p-6 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-gray-900">Services</h2>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddServiceModal(true)}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                    >
+                      <PlusIcon className="w-4 h-4" />
+                      Add Service
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Add services for this contract. Maintenance services will include DSNY schedule
+                    integration.
+                  </p>
+                  <div className="space-y-4">
+                    {contractServices.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        No services added yet. Click "Add Service" to get started.
                       </div>
-                    </div>
-
-                    {/* Individual Collection Schedules */}
-                    <div className="space-y-4">
-                      <h4 className="text-sm font-medium text-gray-700">Collection Schedules</h4>
-
-                      {/* Garbage Schedule */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-600">
-                          Garbage Collection
-                        </label>
-                        <div className="grid grid-cols-7 gap-1">
-                          {dayNames.map((day) => (
-                            <div key={day.key} className="flex flex-col items-center">
-                              <input
-                                type="checkbox"
-                                id={`garbage_${day.key}`}
-                                checked={formData.garbage_schedule.includes(day.key)}
-                                onChange={(e) => {
-                                  const newSchedule = e.target.checked
-                                    ? [...formData.garbage_schedule, day.key]
-                                    : formData.garbage_schedule.filter((d) => d !== day.key)
-                                  setFormData({ ...formData, garbage_schedule: newSchedule })
-                                }}
-                                className="w-3 h-3 text-red-600 border-gray-300 rounded focus:ring-red-500"
-                              />
-                              <span className="text-xs text-gray-500 mt-1">
-                                {day.label.slice(0, 1)}
-                              </span>
+                    ) : (
+                      contractServices.map((service) => (
+                        <div
+                          key={service.id}
+                          className="p-4 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <h3 className="font-medium text-gray-900">{service.service_name}</h3>
+                              <p className="text-sm text-gray-600">
+                                {service.is_maintenance
+                                  ? '🧹 Maintenance Service'
+                                  : '🔧 Other Service'}{' '}
+                                • ${service.amount.toFixed(2)}
+                              </p>
+                              {service.is_maintenance && service.schedule.dsny_integration && (
+                                <p className="text-xs text-green-600 mt-1">
+                                  ✓ DSNY schedule integrated
+                                </p>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Recycling Schedule */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-600">
-                          Recycling Collection
-                        </label>
-                        <div className="grid grid-cols-7 gap-1">
-                          {dayNames.map((day) => (
-                            <div key={day.key} className="flex flex-col items-center">
-                              <input
-                                type="checkbox"
-                                id={`recycling_${day.key}`}
-                                checked={formData.recycling_schedule.includes(day.key)}
-                                onChange={(e) => {
-                                  const newSchedule = e.target.checked
-                                    ? [...formData.recycling_schedule, day.key]
-                                    : formData.recycling_schedule.filter((d) => d !== day.key)
-                                  setFormData({ ...formData, recycling_schedule: newSchedule })
-                                }}
-                                className="w-3 h-3 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                              />
-                              <span className="text-xs text-gray-500 mt-1">
-                                {day.label.slice(0, 1)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Organics Schedule */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-600">
-                          Organics/Compost Collection
-                        </label>
-                        <div className="grid grid-cols-7 gap-1">
-                          {dayNames.map((day) => (
-                            <div key={day.key} className="flex flex-col items-center">
-                              <input
-                                type="checkbox"
-                                id={`organics_${day.key}`}
-                                checked={formData.organics_schedule.includes(day.key)}
-                                onChange={(e) => {
-                                  const newSchedule = e.target.checked
-                                    ? [...formData.organics_schedule, day.key]
-                                    : formData.organics_schedule.filter((d) => d !== day.key)
-                                  setFormData({ ...formData, organics_schedule: newSchedule })
-                                }}
-                                className="w-3 h-3 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                              />
-                              <span className="text-xs text-gray-500 mt-1">
-                                {day.label.slice(0, 1)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Bulk Schedule */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-600">
-                          Bulk Items Collection
-                        </label>
-                        <div className="grid grid-cols-7 gap-1">
-                          {dayNames.map((day) => (
-                            <div key={day.key} className="flex flex-col items-center">
-                              <input
-                                type="checkbox"
-                                id={`bulk_${day.key}`}
-                                checked={formData.bulk_schedule.includes(day.key)}
-                                onChange={(e) => {
-                                  const newSchedule = e.target.checked
-                                    ? [...formData.bulk_schedule, day.key]
-                                    : formData.bulk_schedule.filter((d) => d !== day.key)
-                                  setFormData({ ...formData, bulk_schedule: newSchedule })
-                                }}
-                                className="w-3 h-3 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                              />
-                              <span className="text-xs text-gray-500 mt-1">
-                                {day.label.slice(0, 1)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Interior Cleaning Schedule */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-600">
-                          Interior Cleaning
-                        </label>
-                        <div className="grid grid-cols-7 gap-1">
-                          {dayNames.map((day) => (
-                            <div key={day.key} className="flex flex-col items-center">
-                              <input
-                                type="checkbox"
-                                id={`interior_${day.key}`}
-                                checked={formData.interior_cleaning_schedule.includes(day.key)}
-                                onChange={(e) => {
-                                  const newSchedule = e.target.checked
-                                    ? [...formData.interior_cleaning_schedule, day.key]
-                                    : formData.interior_cleaning_schedule.filter(
-                                        (d) => d !== day.key
-                                      )
-                                  setFormData({
-                                    ...formData,
-                                    interior_cleaning_schedule: newSchedule,
-                                  })
-                                }}
-                                className="w-3 h-3 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                              />
-                              <span className="text-xs text-gray-500 mt-1">
-                                {day.label.slice(0, 1)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Dynamic Manual Schedules */}
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-medium text-gray-700">
-                            Additional Manual Schedules
-                          </h4>
-                          <button
-                            type="button"
-                            onClick={addManualSchedule}
-                            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-                          >
-                            + Add Schedule Type
-                          </button>
-                        </div>
-
-                        {formData.manual_schedules.map((schedule) => (
-                          <div
-                            key={schedule.id}
-                            className="space-y-2 p-3 border border-gray-200 rounded-lg"
-                          >
                             <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                placeholder="Schedule name (e.g., Landscaping, Security)"
-                                value={schedule.name}
-                                onChange={(e) =>
-                                  updateManualSchedule(schedule.id, 'name', e.target.value)
-                                }
-                                className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                              />
-                              <input
-                                type="text"
-                                placeholder="Description"
-                                value={schedule.description}
-                                onChange={(e) =>
-                                  updateManualSchedule(schedule.id, 'description', e.target.value)
-                                }
-                                className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                              />
                               <button
                                 type="button"
-                                onClick={() => removeManualSchedule(schedule.id)}
-                                className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setContractServices(
+                                    contractServices.filter((s) => s.id !== service.id)
+                                  )
+                                }
+                                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
                               >
                                 Remove
                               </button>
                             </div>
-
-                            <div className="grid grid-cols-7 gap-1">
-                              {dayNames.map((day) => (
-                                <div key={day.key} className="flex flex-col items-center">
-                                  <input
-                                    type="checkbox"
-                                    id={`manual_${schedule.id}_${day.key}`}
-                                    checked={schedule.days.includes(day.key)}
-                                    onChange={(e) =>
-                                      updateManualScheduleDays(
-                                        schedule.id,
-                                        day.key,
-                                        e.target.checked
-                                      )
-                                    }
-                                    className="w-3 h-3 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                                  />
-                                  <span className="text-xs text-gray-500 mt-1">
-                                    {day.label.slice(0, 1)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Billing & Financials Tab */}
+            {activeTab === 'billing' && (
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-lg border border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    Billing Configuration
+                  </h2>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Total Amount *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.total_amount}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            total_amount: parseFloat(e.target.value) || 0,
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Billing Frequency *
+                      </label>
+                      <select
+                        value={formData.billing_frequency}
+                        onChange={(e) =>
+                          setFormData({ ...formData, billing_frequency: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="after_each_service">After Each Service</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="bi_weekly">Bi-Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="annually">Annually</option>
+                        <option value="one_time">One-Time</option>
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Sales Tax Status
+                      </label>
+                      <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Use Customer Default</option>
+                        <option value="taxable">Taxable</option>
+                        <option value="exempt">Tax Exempt</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Defaults to customer's sales tax status but can be overridden per contract
+                      </p>
                     </div>
                   </div>
-                )}
+                </div>
+
+                <div className="bg-white p-6 rounded-lg border border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Line Items</h2>
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-600">
+                      Line items will be added here for invoice generation
+                    </p>
+                    <button
+                      type="button"
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      + Add Line Item
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* Detailed Schedule View */}
-            {(formData.dsny_integration ||
-              formData.garbage_schedule.length > 0 ||
-              formData.recycling_schedule.length > 0 ||
-              formData.organics_schedule.length > 0 ||
-              formData.bulk_schedule.length > 0 ||
-              formData.interior_cleaning_schedule.length > 0 ||
-              formData.manual_schedules.length > 0) && (
+            {/* Notes Tab */}
+            {activeTab === 'notes' && (
               <div className="space-y-4">
-                <ScheduleView
-                  garbageSchedule={formData.garbage_schedule}
-                  recyclingSchedule={formData.recycling_schedule}
-                  organicsSchedule={formData.organics_schedule}
-                  bulkSchedule={formData.bulk_schedule}
-                  interiorCleaningSchedule={formData.interior_cleaning_schedule}
-                  masterWeeklySchedule={formData.master_weekly_schedule}
-                  manualSchedules={formData.manual_schedules}
-                />
-              </div>
-            )}
-
-            {/* Contract Terms */}
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900">Contract Terms</h2>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Payment Terms
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.payment_terms}
-                    onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Net 30"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Late Fee Percentage
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    value={formData.late_fee_percentage}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        late_fee_percentage: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Cancellation Terms
-                </label>
-                <textarea
-                  value={formData.cancellation_terms}
-                  onChange={(e) => setFormData({ ...formData, cancellation_terms: e.target.value })}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter cancellation terms"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+                <h2 className="text-lg font-semibold text-gray-900">Notes</h2>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  rows={3}
+                  rows={5}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter additional notes"
+                  placeholder="Enter any additional notes or comments for this contract."
                 />
               </div>
-            </div>
+            )}
 
-            {/* Submit Buttons */}
-            <div className="flex items-center gap-4 pt-6 border-t border-gray-200">
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Creating Contract...
-                  </>
-                ) : (
-                  <>
-                    <PlusIcon className="w-4 h-4" />
-                    Create Contract
-                  </>
-                )}
-              </button>
+            {/* Navigation Buttons */}
+            <div className="flex items-center justify-between gap-4 pt-6 border-t border-gray-200">
+              {/* Left side: Cancel button */}
               <button
                 type="button"
                 onClick={() => navigate('/contracts')}
@@ -1301,9 +1315,411 @@ export function ContractCreate() {
               >
                 Cancel
               </button>
+
+              {/* Right side: Back and Next/Create buttons */}
+              <div className="flex gap-3">
+                {activeTab !== 'overview' && (
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                  >
+                    Back
+                  </button>
+                )}
+                {activeTab === 'notes' ? (
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Creating Contract...
+                      </>
+                    ) : (
+                      <>
+                        <PlusIcon className="w-4 h-4" />
+                        Create Contract
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    disabled={!validateTab(activeTab)}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                )}
+              </div>
             </div>
-          </form>
+          </div>
         </div>
+
+        {/* Add Service Modal */}
+        {showAddServiceModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Add Service</h2>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Service Item *
+                  </label>
+                  <select
+                    value={newService.service_type}
+                    onChange={(e) => {
+                      const selectedItem = serviceItems.find((item) => item.id === e.target.value)
+                      setNewService({
+                        ...newService,
+                        service_type: e.target.value,
+                        service_name: selectedItem?.name || '',
+                        amount: selectedItem?.base_price || 0,
+                      })
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select service item...</option>
+                    {serviceItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} {item.categories ? `(${item.categories.name})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Amount *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={newService.amount}
+                    onChange={(e) =>
+                      setNewService({ ...newService, amount: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                {isMaintenanceServiceById(newService.service_type) && (
+                  <div className="pt-4 border-t border-gray-200">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="dsny_integration_new"
+                          checked={newService.dsny_integration}
+                          onChange={(e) =>
+                            setNewService({ ...newService, dsny_integration: e.target.checked })
+                          }
+                          className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                        />
+                        <label
+                          htmlFor="dsny_integration_new"
+                          className="text-sm font-medium text-gray-700"
+                        >
+                          Enable DSNY Schedule Integration
+                        </label>
+                      </div>
+                      {newService.dsny_integration && formData.property_id && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const selectedProperty = properties.find(
+                              (p) => p.id === formData.property_id
+                            )
+                            if (!selectedProperty) {
+                              alert('Please select a property first')
+                              return
+                            }
+
+                            try {
+                              const dsnyData = await fetchDSNYPickupSchedule(
+                                selectedProperty.address || ''
+                              )
+                              const garbageDays = dsnyData.schedules.garbage || []
+                              const recyclingDays = dsnyData.schedules.recycling || []
+                              const organicsDays = dsnyData.schedules.organics || []
+                              const bulkDays = dsnyData.schedules.bulk || []
+
+                              // Combine all collection days to determine when to visit
+                              const allCollectionDays = Array.from(
+                                new Set([
+                                  ...garbageDays,
+                                  ...recyclingDays,
+                                  ...organicsDays,
+                                  ...bulkDays,
+                                ])
+                              )
+
+                              // Update newService with ALL DSNY schedules
+                              setNewService({
+                                ...newService,
+                                recurrence_days:
+                                  allCollectionDays.length > 0
+                                    ? allCollectionDays
+                                    : newService.recurrence_days,
+                                garbage_schedule: garbageDays,
+                                recycling_schedule: recyclingDays,
+                                organics_schedule: organicsDays,
+                                bulk_schedule: bulkDays,
+                                interior_cleaning_schedule: [], // Optional - user can add manually
+                              })
+
+                              alert(
+                                `DSNY schedule loaded for ${selectedProperty.address}!\nGarbage: ${garbageDays.length} days\nRecycling: ${recyclingDays.length} days\nOrganics: ${organicsDays.length} days\nBulk: ${bulkDays.length} days`
+                              )
+                            } catch (error) {
+                              console.error('Error fetching DSNY schedule:', error)
+                              alert('Error fetching DSNY schedule')
+                            }
+                          }}
+                          className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                        >
+                          Fetch DSNY Schedule
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mb-3">
+                      When enabled, this maintenance service will automatically sync with DSNY
+                      pickup schedules for garbage, recycling, organics, and bulk collection.
+                    </p>
+                    {newService.dsny_integration && !formData.property_id && (
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                        ⚠️ Please select a property in the Overview tab to fetch DSNY schedule
+                      </div>
+                    )}
+
+                    {/* DSNY Schedule Display - Show fetched schedules */}
+                    {newService.dsny_integration &&
+                      (newService.garbage_schedule.length > 0 ||
+                        newService.recycling_schedule.length > 0 ||
+                        newService.organics_schedule.length > 0 ||
+                        newService.bulk_schedule.length > 0) && (
+                        <div className="mt-6 space-y-4 border-l-2 border-green-200 pl-4">
+                          <h4 className="text-sm font-medium text-gray-700">
+                            DSNY Collection Schedules
+                          </h4>
+
+                          {/* Garbage Schedule */}
+                          {newService.garbage_schedule.length > 0 && (
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-gray-600">
+                                Garbage Collection
+                              </label>
+                              <div className="grid grid-cols-7 gap-1">
+                                {dayNames.map((day) => (
+                                  <div key={day.key} className="flex flex-col items-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={newService.garbage_schedule.includes(day.key)}
+                                      disabled
+                                      className="w-3 h-3 text-red-600 border-gray-300 rounded opacity-50 cursor-not-allowed"
+                                    />
+                                    <span className="text-xs text-gray-500 mt-1">
+                                      {day.label.slice(0, 1)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Recycling Schedule */}
+                          {newService.recycling_schedule.length > 0 && (
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-gray-600">
+                                Recycling Collection
+                              </label>
+                              <div className="grid grid-cols-7 gap-1">
+                                {dayNames.map((day) => (
+                                  <div key={day.key} className="flex flex-col items-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={newService.recycling_schedule.includes(day.key)}
+                                      disabled
+                                      className="w-3 h-3 text-blue-600 border-gray-300 rounded opacity-50 cursor-not-allowed"
+                                    />
+                                    <span className="text-xs text-gray-500 mt-1">
+                                      {day.label.slice(0, 1)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Organics Schedule */}
+                          {newService.organics_schedule.length > 0 && (
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-gray-600">
+                                Organics/Compost Collection
+                              </label>
+                              <div className="grid grid-cols-7 gap-1">
+                                {dayNames.map((day) => (
+                                  <div key={day.key} className="flex flex-col items-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={newService.organics_schedule.includes(day.key)}
+                                      disabled
+                                      className="w-3 h-3 text-green-600 border-gray-300 rounded opacity-50 cursor-not-allowed"
+                                    />
+                                    <span className="text-xs text-gray-500 mt-1">
+                                      {day.label.slice(0, 1)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Bulk Schedule */}
+                          {newService.bulk_schedule.length > 0 && (
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-gray-600">
+                                Bulk Items Collection
+                              </label>
+                              <div className="grid grid-cols-7 gap-1">
+                                {dayNames.map((day) => (
+                                  <div key={day.key} className="flex flex-col items-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={newService.bulk_schedule.includes(day.key)}
+                                      disabled
+                                      className="w-3 h-3 text-purple-600 border-gray-300 rounded opacity-50 cursor-not-allowed"
+                                    />
+                                    <span className="text-xs text-gray-500 mt-1">
+                                      {day.label.slice(0, 1)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-gray-200">
+                  <h3 className="text-sm font-medium text-gray-700 mb-3">
+                    Visit Schedule Configuration
+                  </h3>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Recurrence Type *
+                      </label>
+                      <select
+                        value={newService.recurrence_type}
+                        onChange={(e) =>
+                          setNewService({ ...newService, recurrence_type: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="weekly">Weekly</option>
+                        <option value="bi_weekly">Bi-Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="custom">Custom Days</option>
+                      </select>
+                    </div>
+
+                    {newService.recurrence_type === 'custom' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Select Days
+                        </label>
+                        <div className="grid grid-cols-7 gap-2">
+                          {dayNames.map((day) => (
+                            <div key={day.key} className="flex flex-col items-center">
+                              <input
+                                type="checkbox"
+                                id={`new_service_day_${day.key}`}
+                                checked={newService.recurrence_days.includes(day.key)}
+                                onChange={(e) => {
+                                  const newDays = e.target.checked
+                                    ? [...newService.recurrence_days, day.key]
+                                    : newService.recurrence_days.filter((d) => d !== day.key)
+                                  setNewService({ ...newService, recurrence_days: newDays })
+                                }}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              />
+                              <label
+                                htmlFor={`new_service_day_${day.key}`}
+                                className="text-xs text-gray-600 mt-1"
+                              >
+                                {day.label.slice(0, 3)}
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(newService.recurrence_type === 'weekly' ||
+                      newService.recurrence_type === 'bi_weekly') && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Select Days
+                        </label>
+                        <div className="grid grid-cols-7 gap-2">
+                          {dayNames.map((day) => (
+                            <div key={day.key} className="flex flex-col items-center">
+                              <input
+                                type="checkbox"
+                                id={`new_service_day_${day.key}`}
+                                checked={newService.recurrence_days.includes(day.key)}
+                                onChange={(e) => {
+                                  const newDays = e.target.checked
+                                    ? [...newService.recurrence_days, day.key]
+                                    : newService.recurrence_days.filter((d) => d !== day.key)
+                                  setNewService({ ...newService, recurrence_days: newDays })
+                                }}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              />
+                              <label
+                                htmlFor={`new_service_day_${day.key}`}
+                                className="text-xs text-gray-600 mt-1"
+                              >
+                                {day.label.slice(0, 3)}
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 pt-6 border-t border-gray-200 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowAddServiceModal(false)}
+                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddService}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Add Service
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

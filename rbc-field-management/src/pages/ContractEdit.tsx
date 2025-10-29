@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import ScheduleView from '../components/ScheduleView'
-import { ArrowLeftIcon, SaveIcon } from 'lucide-react'
+import { ArrowLeftIcon, SaveIcon, ChevronDownIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { logActivity } from '../utils/activityLogger'
 
@@ -70,7 +70,7 @@ export function ContractEdit() {
   const [filteredProposals, setFilteredProposals] = useState<any[]>([])
   const [showCreateCustomer, setShowCreateCustomer] = useState(false)
   const [showCreateProperty, setShowCreateProperty] = useState(false)
-  const [activeTab, setActiveTab] = useState<'overview' | 'schedule' | 'terms' | 'notes'>(
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'billing' | 'notes'>(
     'overview'
   )
   const [activities, setActivities] = useState<any[]>([])
@@ -79,11 +79,26 @@ export function ContractEdit() {
     invoices: any[]
     proposals: any[]
   }>({ jobs: [], invoices: [], proposals: [] })
+  const [contractServices, setContractServices] = useState<any[]>([])
+  const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set())
+
+  const toggleService = (serviceId: string) => {
+    setExpandedServices((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(serviceId)) {
+        newSet.delete(serviceId)
+      } else {
+        newSet.add(serviceId)
+      }
+      return newSet
+    })
+  }
 
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    contract_type: 'one_time' as 'one_time' | 'recurring',
+    template_type: '',
+    contract_type: 'one_time',
     service_type: '',
     customer_id: '',
     property_id: '',
@@ -200,6 +215,20 @@ export function ContractEdit() {
     }
   }
 
+  const fetchContractServices = async (contractId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('contract_services')
+        .select('*')
+        .eq('contract_id', contractId)
+
+      if (error) throw error
+      setContractServices(data || [])
+    } catch (error) {
+      console.error('Error fetching contract services:', error)
+    }
+  }
+
   const fetchContract = async (contractId: string) => {
     try {
       setLoading(true)
@@ -219,9 +248,13 @@ export function ContractEdit() {
       if (contractError) throw contractError
 
       setContract(contractData)
+
+      // Fetch contract services
+      await fetchContractServices(contractId)
       setFormData({
         title: contractData.title || '',
         description: contractData.description || '',
+        template_type: contractData.template_type || '',
         contract_type: contractData.contract_type || 'one_time',
         service_type: contractData.service_type || '',
         customer_id: contractData.customer_id || '',
@@ -597,7 +630,8 @@ export function ContractEdit() {
         .update({
           title: formData.title,
           description: formData.description || null,
-          contract_type: formData.contract_type,
+          template_type: formData.template_type || null,
+          contract_type: formData.contract_type, // This is now one_time or recurring
           service_type: formData.service_type || null,
           customer_id: formData.customer_id || null,
           property_id: formData.property_id || null,
@@ -717,194 +751,375 @@ export function ContractEdit() {
 
       {/* Tab Navigation */}
       <div className="flex gap-4 mb-6 border-b border-gray-200">
-        {['overview', 'schedule', 'terms', 'notes'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab as 'overview' | 'schedule' | 'terms' | 'notes')}
-            className={`px-4 py-3 font-medium border-b-2 transition-colors ${
-              activeTab === tab
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            activeTab === 'overview'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('services')}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            activeTab === 'services'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Services & Schedule
+        </button>
+        <button
+          onClick={() => setActiveTab('billing')}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            activeTab === 'billing'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Billing & Financials
+        </button>
+        <button
+          onClick={() => setActiveTab('notes')}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            activeTab === 'notes'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          Notes
+        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer & Property</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Customer *</label>
-                  <select
-                    value={formData.customer_id}
-                    onChange={(e) =>
-                      setFormData({ ...formData, customer_id: e.target.value, property_id: '' })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  >
-                    <option value="">Select Customer</option>
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.company_name ||
-                          `${customer.contact_first_name} ${customer.contact_last_name}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            {/* Contract Title and Status - At the top */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Contract Title *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g., 149 Skillman Street - Maintenance"
+                />
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Property *</label>
-                  <select
-                    value={formData.property_id}
-                    onChange={(e) => setFormData({ ...formData, property_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  >
-                    <option value="">Select Property</option>
-                    {properties
-                      .filter((property) => property.customer_id === formData.customer_id)
-                      .map((property) => (
-                        <option key={property.id} value={property.id}>
-                          {property.name} - {property.address}
-                        </option>
-                      ))}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  value={formData.status}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      status: e.target.value as
+                        | 'draft'
+                        | 'pending_signature'
+                        | 'active'
+                        | 'paused'
+                        | 'completed'
+                        | 'cancelled'
+                        | 'expired',
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="draft">Draft</option>
+                  <option value="pending_signature">Pending Signature</option>
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="expired">Expired</option>
+                </select>
+              </div>
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Proposal
-                  </label>
-                  <select
-                    value={formData.proposal_id}
-                    onChange={(e) => setFormData({ ...formData, proposal_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select Proposal</option>
-                    {filteredProposals.map((proposal) => (
-                      <option key={proposal.id} value={proposal.id}>
-                        {proposal.proposal_number} - {proposal.title}
-                      </option>
-                    ))}
-                  </select>
+            {/* Two Column Layout: Customer/Property on left, Template/Proposal on right */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left Column: Customer & Property */}
+              <div className="flex flex-col justify-between">
+                <div className="space-y-6">
+                  <div className="space-y-4">
+                    <h2 className="text-lg font-semibold text-gray-900">Customer & Property</h2>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Customer *
+                        </label>
+                        <div className="flex gap-2">
+                          <select
+                            required
+                            value={formData.customer_id}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                customer_id: e.target.value,
+                                property_id: '',
+                              })
+                            }
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="">Select customer...</option>
+                            {customers.map((customer) => (
+                              <option key={customer.id} value={customer.id}>
+                                {customer.company_name ||
+                                  `${customer.contact_first_name} ${customer.contact_last_name}`}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setShowCreateCustomer(true)}
+                            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+                          >
+                            + New
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="pt-[27px]">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Property *
+                        </label>
+                        <div className="flex gap-2">
+                          <select
+                            required
+                            value={formData.property_id}
+                            onChange={(e) =>
+                              setFormData({ ...formData, property_id: e.target.value })
+                            }
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            disabled={!formData.customer_id}
+                          >
+                            <option value="">Select property...</option>
+                            {properties
+                              .filter((p) => p.customer_id === formData.customer_id)
+                              .map((property) => (
+                                <option key={property.id} value={property.id}>
+                                  {property.name || property.address}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setShowCreateProperty(true)}
+                            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+                            disabled={!formData.customer_id}
+                          >
+                            + New
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {/* Spacer to align with right column height */}
+                <div className="flex-grow"></div>
+              </div>
+
+              {/* Right Column: Template Type & Proposal Selection */}
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Contract Type & Proposal</h2>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Template Type *
+                      </label>
+                      <select
+                        required
+                        value={formData.template_type}
+                        onChange={(e) => {
+                          const newType = e.target.value
+                          setFormData({
+                            ...formData,
+                            template_type: newType,
+                          })
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Please select...</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="cleaning">Cleaning</option>
+                        <option value="landscaping">Landscaping</option>
+                        <option value="security">Security</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        This determines the template used when printing the contract
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Create from Proposal (Optional)
+                      </label>
+                      <select
+                        value={formData.proposal_id}
+                        onChange={(e) => setFormData({ ...formData, proposal_id: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Select a proposal...</option>
+                        {filteredProposals.map((proposal) => (
+                          <option key={proposal.id} value={proposal.id}>
+                            {proposal.proposal_number} - {proposal.title}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Selecting a proposal will auto-fill service details and amount
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Service Details</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Service Type *
-                  </label>
-                  <select
-                    value={formData.service_type}
-                    onChange={(e) => setFormData({ ...formData, service_type: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  >
-                    <option value="">Select Service Type</option>
-                    {serviceCategories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            {/* Contract Description - Below the two columns */}
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-gray-900">Contract Description</h2>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Total Amount
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.total_amount}
-                    onChange={(e) =>
-                      setFormData({ ...formData, total_amount: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Information</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contract Title *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    required
-                    placeholder="Auto-filled: Property Address - Service Type"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        status: e.target.value as
-                          | 'draft'
-                          | 'pending_signature'
-                          | 'active'
-                          | 'paused'
-                          | 'completed'
-                          | 'cancelled'
-                          | 'expired',
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="pending_signature">Pending Signature</option>
-                    <option value="active">Active</option>
-                    <option value="paused">Paused</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
-                    <option value="expired">Expired</option>
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Contract description..."
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Enter contract description"
+                />
               </div>
             </div>
           </div>
         )}
 
-        {/* Schedule Tab */}
-        {activeTab === 'schedule' && (
+        {/* Services & Schedule Tab */}
+        {activeTab === 'services' && (
           <div className="space-y-6">
+            {/* Contract Type */}
             <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Schedule</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Type</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Contract Type *
+                  </label>
+                  <select
+                    required
+                    value={formData.contract_type}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        contract_type: e.target.value as 'one_time' | 'recurring',
+                        is_recurring: e.target.value === 'recurring',
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="one_time">One Time</option>
+                    <option value="recurring">Recurring</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Services List */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">Services</h2>
+              </div>
+              <div className="space-y-4">
+                {contractServices.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No services added to this contract yet.
+                  </div>
+                ) : (
+                  contractServices.map((service) => {
+                    const isExpanded = expandedServices.has(service.id)
+                    return (
+                      <div
+                        key={service.id}
+                        className="border border-gray-200 rounded-lg overflow-hidden"
+                      >
+                        {/* Service Header */}
+                        <button
+                          type="button"
+                          onClick={() => toggleService(service.id)}
+                          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors text-left"
+                        >
+                          <div className="flex items-center gap-3">
+                            <h3 className="font-medium text-gray-900">{service.service_name}</h3>
+                            <p className="text-sm text-gray-600">
+                              ${service.amount?.toFixed(2) || '0.00'}
+                            </p>
+                            {service.dsny_integration && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                DSNY
+                              </span>
+                            )}
+                          </div>
+                          <ChevronDownIcon
+                            className={`w-5 h-5 text-gray-400 transition-transform ${
+                              isExpanded ? 'transform rotate-180' : ''
+                            }`}
+                          />
+                        </button>
+
+                        {/* Service Schedule */}
+                        {isExpanded && (
+                          <div className="p-4 pt-0 border-t border-gray-200">
+                            {(service.dsny_integration ||
+                              (service.garbage_schedule && service.garbage_schedule.length > 0) ||
+                              (service.recycling_schedule &&
+                                service.recycling_schedule.length > 0) ||
+                              (service.organics_schedule && service.organics_schedule.length > 0) ||
+                              (service.bulk_schedule && service.bulk_schedule.length > 0) ||
+                              (service.interior_cleaning_schedule &&
+                                service.interior_cleaning_schedule.length > 0) ||
+                              (service.recurrence_days && service.recurrence_days.length > 0)) && (
+                              <div className="mt-3">
+                                <h4 className="text-sm font-medium text-gray-700 mb-2">Schedule</h4>
+                                <ScheduleView
+                                  garbageSchedule={service.garbage_schedule || []}
+                                  recyclingSchedule={service.recycling_schedule || []}
+                                  organicsSchedule={service.organics_schedule || []}
+                                  bulkSchedule={service.bulk_schedule || []}
+                                  interiorCleaningSchedule={(
+                                    service.interior_cleaning_schedule || []
+                                  ).map((day: string | number) => parseInt(String(day)))}
+                                  masterWeeklySchedule={service.recurrence_days || []}
+                                  manualSchedules={[]}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Legacy Services & Schedule Tab - Replaced above */}
+        {false && (
+          <div className="space-y-6">
+            {/* Contract Type */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Type</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1053,43 +1268,26 @@ export function ContractEdit() {
           </div>
         )}
 
-        {/* Terms Tab */}
-        {activeTab === 'terms' && (
+        {/* Billing & Financials Tab */}
+        {activeTab === 'billing' && (
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Terms</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Billing Configuration</h2>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Payment Terms
-                  </label>
-                  <select
-                    value={formData.payment_terms}
-                    onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="Net 15">Net 15</option>
-                    <option value="Net 30">Net 30</option>
-                    <option value="Net 45">Net 45</option>
-                    <option value="Net 60">Net 60</option>
-                    <option value="Due on Receipt">Due on Receipt</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Late Fee Percentage
+                    Total Amount *
                   </label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
-                    max="100"
-                    value={formData.late_fee_percentage}
+                    value={formData.total_amount}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        late_fee_percentage: parseFloat(e.target.value) || 0,
+                        total_amount: parseFloat(e.target.value) || 0,
                       })
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1097,20 +1295,55 @@ export function ContractEdit() {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Billing Frequency *
+                  </label>
+                  <select
+                    value={formData.billing_frequency}
+                    onChange={(e) =>
+                      setFormData({ ...formData, billing_frequency: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="after_each_service">After Each Service</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="bi_weekly">Bi-Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="annually">Annually</option>
+                    <option value="one_time">One-Time</option>
+                  </select>
+                </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Cancellation Terms
+                    Sales Tax Status
                   </label>
-                  <textarea
-                    value={formData.cancellation_terms}
-                    onChange={(e) =>
-                      setFormData({ ...formData, cancellation_terms: e.target.value })
-                    }
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Cancellation terms and conditions..."
-                  />
+                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Use Customer Default</option>
+                    <option value="taxable">Taxable</option>
+                    <option value="exempt">Tax Exempt</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Defaults to customer's sales tax status but can be overridden per contract
+                  </p>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Line Items</h2>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Line items will be added here for invoice generation
+                </p>
+                <button
+                  type="button"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  + Add Line Item
+                </button>
               </div>
             </div>
           </div>
@@ -1118,66 +1351,17 @@ export function ContractEdit() {
 
         {/* Notes Tab */}
         {activeTab === 'notes' && (
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
-              <textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                onKeyDown={handleNotesKeyDown}
-                rows={5}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter notes (Ctrl+Enter for quick submission)"
-              />
-              <p className="text-sm text-gray-500 mt-2">Press Ctrl+Enter to save notes</p>
-            </div>
-
-            {/* Activity Section */}
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Related Items</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div className="p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{relatedItems.jobs.length}</div>
-                  <div className="text-sm text-gray-600">Jobs</div>
-                </div>
-                <div className="p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">
-                    {relatedItems.invoices.length}
-                  </div>
-                  <div className="text-sm text-gray-600">Invoices</div>
-                </div>
-                <div className="p-4 bg-purple-50 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-600">
-                    {relatedItems.proposals.length}
-                  </div>
-                  <div className="text-sm text-gray-600">Proposals</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Activity Log */}
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Activity Log</h2>
-              {activities.length > 0 ? (
-                <div className="space-y-3">
-                  {activities.map((activity) => (
-                    <div
-                      key={activity.id}
-                      className="flex gap-3 pb-3 border-b border-gray-100 last:border-b-0"
-                    >
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">{activity.description}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {new Date(activity.created_at).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500">No activity yet</p>
-              )}
-            </div>
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">Notes</h2>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              onKeyDown={handleNotesKeyDown}
+              rows={5}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Enter any additional notes or comments for this contract."
+            />
+            <p className="text-sm text-gray-500">Press Ctrl+Enter to save notes</p>
           </div>
         )}
 

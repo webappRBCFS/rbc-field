@@ -85,6 +85,7 @@ export function ContractCreate() {
   const [contractServices, setContractServices] = useState<
     Array<{
       id: string
+      service_item_id: string
       service_type: string
       service_name: string
       amount: number
@@ -105,7 +106,8 @@ export function ContractCreate() {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    contract_type: '', // Changed to empty string - will be set by template dropdown
+    template_type: '', // Template type (maintenance, cleaning, etc.)
+    contract_type: 'one_time', // Contract type (one_time, recurring)
     service_type: '',
     customer_id: '',
     property_id: '',
@@ -156,31 +158,31 @@ export function ContractCreate() {
     setFormData((prev) => ({ ...prev, total_amount: total }))
   }, [contractServices])
 
-  // Auto-generate contract title from property address and template type (contract_type)
+  // Auto-generate contract title from property address and template type
   useEffect(() => {
-    if (formData.property_id && formData.contract_type) {
+    if (formData.property_id && formData.template_type) {
       const selectedProperty = properties.find((p) => p.id === formData.property_id)
       if (selectedProperty?.address) {
         const streetAddress = selectedProperty.address.split(',')[0].trim()
-        // Capitalize first letter of each word in contract type
-        const contractType = formData.contract_type
+        // Capitalize first letter of each word in template type
+        const templateType = formData.template_type
           .split('_')
           .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
           .join(' ')
 
         setFormData((prev) => ({
           ...prev,
-          title: `${streetAddress} - ${contractType}`,
+          title: `${streetAddress} - ${templateType}`,
         }))
       }
-    } else if (!formData.property_id || !formData.contract_type) {
+    } else if (!formData.property_id || !formData.template_type) {
       // Clear title if property or template type is not selected
       setFormData((prev) => ({
         ...prev,
         title: '',
       }))
     }
-  }, [formData.property_id, formData.contract_type, properties])
+  }, [formData.property_id, formData.template_type, properties])
 
   useEffect(() => {
     if (formData.customer_id) {
@@ -586,12 +588,17 @@ export function ContractCreate() {
       return
     }
 
-    const selectedCategory = serviceCategories.find((c) => c.id === newService.service_type)
+    // Find the selected service item to get its category ID
+    const selectedItem = serviceItems.find((item) => item.id === newService.service_type)
+    const selectedCategory = serviceCategories.find(
+      (c) => c.id === selectedItem?.service_category_id
+    )
     const isMaintenance = selectedCategory?.name?.toLowerCase().includes('dsny') || false
 
     const service = {
       id: `service_${Date.now()}`,
-      service_type: newService.service_type,
+      service_item_id: newService.service_type, // Store the service item ID
+      service_type: selectedItem?.service_category_id || '', // Store the category ID for database
       service_name: newService.service_name,
       amount: newService.amount,
       is_maintenance: isMaintenance,
@@ -715,6 +722,8 @@ export function ContractCreate() {
       const contractData = {
         ...formData,
         contract_number: '', // Will be auto-generated
+        template_type: formData.template_type || null,
+        contract_type: formData.is_recurring ? 'recurring' : 'one_time', // Convert is_recurring to contract_type
         customer_id: formData.customer_id || null,
         property_id: formData.property_id || null,
         proposal_id: formData.proposal_id || null,
@@ -923,6 +932,52 @@ export function ContractCreate() {
             {/* Overview Tab */}
             {activeTab === 'overview' && (
               <div className="space-y-6">
+                {/* Contract Title and Status - At the top */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Contract Title *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="e.g., 149 Skillman Street - Maintenance"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          status: e.target.value as
+                            | 'draft'
+                            | 'pending_signature'
+                            | 'active'
+                            | 'paused'
+                            | 'completed'
+                            | 'cancelled'
+                            | 'expired',
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="pending_signature">Pending Signature</option>
+                      <option value="active">Active</option>
+                      <option value="paused">Paused</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                      <option value="expired">Expired</option>
+                    </select>
+                  </div>
+                </div>
+
                 {/* Two Column Layout: Customer/Property on left, Template/Proposal on right */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Left Column: Customer & Property */}
@@ -1021,13 +1076,12 @@ export function ContractCreate() {
                           </label>
                           <select
                             required
-                            value={formData.contract_type}
+                            value={formData.template_type}
                             onChange={(e) => {
                               const newType = e.target.value
                               setFormData({
                                 ...formData,
-                                contract_type: newType,
-                                is_recurring: newType === 'recurring',
+                                template_type: newType,
                               })
                             }}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1069,29 +1123,9 @@ export function ContractCreate() {
                   </div>
                 </div>
 
-                {/* Contract Information - Below the two columns */}
+                {/* Contract Description - Below the two columns */}
                 <div className="space-y-4">
-                  <h2 className="text-lg font-semibold text-gray-900">Contract Information</h2>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Contract Title *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.title}
-                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="e.g., 149 Skillman Street - Maintenance"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Format:{' '}
-                      {properties.find((p) => p.id === formData.property_id)?.address ||
-                        'Property Address'}{' '}
-                      - {formData.service_type || 'Service Type'}
-                    </p>
-                  </div>
+                  <h2 className="text-lg font-semibold text-gray-900">Contract Description</h2>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

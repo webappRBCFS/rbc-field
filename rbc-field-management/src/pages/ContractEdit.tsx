@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import ScheduleView from '../components/ScheduleView'
-import { ArrowLeftIcon, SaveIcon, ChevronDownIcon } from 'lucide-react'
+import { ArrowLeftIcon, SaveIcon, ChevronDownIcon, TrashIcon, PlusIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { logActivity } from '../utils/activityLogger'
+import { fetchServiceItemsGrouped, ServiceItemGrouped } from '../utils/serviceItems'
 
 interface Contract {
   id: string
@@ -94,6 +95,33 @@ export function ContractEdit() {
     })
   }
 
+  // Line items for billing
+  interface ContractLineItem {
+    id: string
+    service_item_id?: string
+    description: string
+    quantity: number
+    unit_type: string
+    unit_price: number
+    total_price: number
+    sort_order: number
+  }
+
+  const [lineItems, setLineItems] = useState<ContractLineItem[]>([
+    {
+      id: `line_item_${Date.now()}`,
+      service_item_id: undefined,
+      description: '',
+      quantity: 1,
+      unit_type: 'flat_rate',
+      unit_price: 0,
+      total_price: 0,
+      sort_order: 0,
+    },
+  ])
+
+  const [serviceItemsGrouped, setServiceItemsGrouped] = useState<ServiceItemGrouped[]>([])
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -149,10 +177,17 @@ export function ContractEdit() {
   useEffect(() => {
     if (id) {
       fetchContract(id)
+      fetchContractLineItems(id)
       fetchActivities()
     }
     fetchData()
+    fetchServiceItems()
   }, [id])
+
+  const fetchServiceItems = async () => {
+    const items = await fetchServiceItemsGrouped()
+    setServiceItemsGrouped(items)
+  }
 
   useEffect(() => {
     if (formData.customer_id) {
@@ -162,6 +197,15 @@ export function ContractEdit() {
       setFilteredProposals([])
     }
   }, [formData.customer_id, proposals])
+
+  // Update total amount when line items change
+  useEffect(() => {
+    const lineItemsTotal = lineItems.reduce((sum, item) => sum + item.total_price, 0)
+    // Only update if line items total is greater than 0
+    if (lineItemsTotal > 0) {
+      setFormData((prev) => ({ ...prev, total_amount: lineItemsTotal }))
+    }
+  }, [lineItems])
 
   const fetchData = async () => {
     try {
@@ -229,6 +273,109 @@ export function ContractEdit() {
     }
   }
 
+  const fetchContractLineItems = async (contractId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('contract_line_items')
+        .select('*')
+        .eq('contract_id', contractId)
+        .order('sort_order', { ascending: true })
+
+      if (error) {
+        // Table might not exist yet, that's okay
+        console.warn('Error fetching contract line items (table may not exist):', error)
+        return
+      }
+
+      if (data && data.length > 0) {
+        setLineItems(
+          data.map((item) => ({
+            id: item.id,
+            service_item_id: item.service_item_id || undefined,
+            description: item.description || '',
+            quantity: item.quantity || 1,
+            unit_type: item.unit_type || 'flat_rate',
+            unit_price: item.unit_price || 0,
+            total_price: item.total_price || 0,
+            sort_order: item.sort_order || 0,
+          }))
+        )
+      }
+    } catch (error) {
+      console.error('Error fetching contract line items:', error)
+    }
+  }
+
+  // Line item management functions
+  const handleLineItemChange = (index: number, field: string, value: string | number) => {
+    const newLineItems = [...lineItems]
+    newLineItems[index] = { ...newLineItems[index], [field]: value }
+
+    // Recalculate total if quantity or unit_price changed
+    if (field === 'quantity' || field === 'unit_price') {
+      newLineItems[index].total_price =
+        Number(newLineItems[index].quantity) * Number(newLineItems[index].unit_price)
+    }
+
+    setLineItems(newLineItems)
+  }
+
+  const handleServiceItemSelect = (index: number, serviceItemId: string) => {
+    if (!serviceItemId) {
+      // Clear service item link
+      const newLineItems = [...lineItems]
+      newLineItems[index] = {
+        ...newLineItems[index],
+        service_item_id: undefined,
+      }
+      setLineItems(newLineItems)
+      return
+    }
+
+    // Find the selected service item
+    let selectedItem: { name: string; unit_type: string; base_price: number } | null = null
+    for (const group of serviceItemsGrouped) {
+      const item = group.items.find((i) => i.id === serviceItemId)
+      if (item) {
+        selectedItem = item
+        break
+      }
+    }
+
+    if (selectedItem) {
+      const newLineItems = [...lineItems]
+      newLineItems[index] = {
+        ...newLineItems[index],
+        service_item_id: serviceItemId,
+        description: selectedItem.name, // Auto-populate description
+        unit_type: selectedItem.unit_type, // Auto-populate unit_type
+        unit_price: selectedItem.base_price, // Auto-populate unit_price
+        total_price: Number(newLineItems[index].quantity) * Number(selectedItem.base_price), // Recalculate total
+      }
+      setLineItems(newLineItems)
+    }
+  }
+
+  const addLineItem = () => {
+    const newItem: ContractLineItem = {
+      id: `line_item_${Date.now()}`,
+      service_item_id: undefined,
+      description: '',
+      quantity: 1,
+      unit_type: 'flat_rate',
+      unit_price: 0,
+      total_price: 0,
+      sort_order: lineItems.length,
+    }
+    setLineItems([...lineItems, newItem])
+  }
+
+  const removeLineItem = (index: number) => {
+    if (lineItems.length > 1) {
+      setLineItems(lineItems.filter((_, i) => i !== index))
+    }
+  }
+
   const fetchContract = async (contractId: string) => {
     try {
       setLoading(true)
@@ -251,6 +398,9 @@ export function ContractEdit() {
 
       // Fetch contract services
       await fetchContractServices(contractId)
+
+      // Fetch contract line items
+      await fetchContractLineItems(contractId)
       setFormData({
         title: contractData.title || '',
         description: contractData.description || '',
@@ -666,6 +816,45 @@ export function ContractEdit() {
         .eq('id', id)
 
       if (error) throw error
+
+      // Update line items
+      if (id) {
+        try {
+          // Delete existing line items
+          await supabase.from('contract_line_items').delete().eq('contract_id', id)
+
+          // Insert new line items
+          const lineItemInserts = lineItems
+            .filter((item) => item.description.trim() !== '') // Only save items with descriptions
+            .map((item) => ({
+              contract_id: id,
+              service_item_id: item.service_item_id || null,
+              description: item.description,
+              quantity: item.quantity,
+              unit_type: item.unit_type,
+              unit_price: item.unit_price,
+              total_price: item.total_price,
+              sort_order: item.sort_order,
+            }))
+
+          if (lineItemInserts.length > 0) {
+            const { error: lineItemsError } = await supabase
+              .from('contract_line_items')
+              .insert(lineItemInserts)
+
+            if (lineItemsError) {
+              console.error('Error saving contract line items:', lineItemsError)
+              // Don't fail the whole operation, just log the error
+              // Table might not exist yet - user can create it later
+            } else {
+              console.log('Contract line items updated successfully')
+            }
+          }
+        } catch (lineItemsError) {
+          console.error('Error saving line items:', lineItemsError)
+          // Don't fail the whole operation, just log the error
+        }
+      }
 
       await logActivity({
         activity_type: 'updated',
@@ -1293,6 +1482,9 @@ export function ContractEdit() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="0.00"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Auto-calculated from line items below
+                  </p>
                 </div>
 
                 <div>
@@ -1316,6 +1508,43 @@ export function ContractEdit() {
                   </select>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Payment Terms *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.payment_terms}
+                    onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="e.g., Net 30"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Late Fee Percentage
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    value={formData.late_fee_percentage}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        late_fee_percentage: parseFloat(e.target.value) || 0,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="0.00"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Percentage applied to overdue invoices
+                  </p>
+                </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Sales Tax Status
@@ -1332,18 +1561,188 @@ export function ContractEdit() {
               </div>
             </div>
 
+            {/* Contract Period */}
             <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Line Items</h2>
-              <div className="space-y-4">
-                <p className="text-sm text-gray-600">
-                  Line items will be added here for invoice generation
-                </p>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Contract Period</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+                  <input
+                    type="date"
+                    value={formData.start_date}
+                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+                  <input
+                    type="date"
+                    value={formData.end_date}
+                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Cancellation Terms */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Cancellation Terms</h2>
+              <textarea
+                value={formData.cancellation_terms}
+                onChange={(e) => setFormData({ ...formData, cancellation_terms: e.target.value })}
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Enter cancellation terms and conditions..."
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Specify any cancellation policies, notice periods, or fees
+              </p>
+            </div>
+
+            {/* Line Items */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">Line Items</h2>
                 <button
                   type="button"
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  onClick={addLineItem}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
-                  + Add Line Item
+                  <PlusIcon className="w-4 h-4" />
+                  Add Line Item
                 </button>
+              </div>
+
+              <div className="space-y-4">
+                {lineItems.map((item, index) => (
+                  <div key={item.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Link to Service Item{' '}
+                        <span className="text-gray-400 font-normal">(Optional)</span>
+                      </label>
+                      <select
+                        value={item.service_item_id || ''}
+                        onChange={(e) => handleServiceItemSelect(index, e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">None - Custom Entry</option>
+                        {serviceItemsGrouped.map((group) => (
+                          <optgroup key={group.category.id} label={group.category.name}>
+                            {group.items.map((serviceItem) => (
+                              <option key={serviceItem.id} value={serviceItem.id}>
+                                {serviceItem.name} - ${serviceItem.base_price.toFixed(2)}/
+                                {serviceItem.unit_type.replace('_', ' ')}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Selecting a service item will auto-fill description, unit type, and price
+                        (you can still edit)
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Description *
+                        </label>
+                        <input
+                          type="text"
+                          value={item.description}
+                          onChange={(e) =>
+                            handleLineItemChange(index, 'description', e.target.value)
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="Service description"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Quantity
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.quantity}
+                          onChange={(e) =>
+                            handleLineItemChange(index, 'quantity', parseFloat(e.target.value) || 0)
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Unit Type
+                        </label>
+                        <select
+                          value={item.unit_type}
+                          onChange={(e) => handleLineItemChange(index, 'unit_type', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="flat_rate">Flat Rate</option>
+                          <option value="per_sqft">Per Sq Ft</option>
+                          <option value="per_hour">Per Hour</option>
+                          <option value="per_visit">Per Visit</option>
+                          <option value="per_month">Per Month</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Unit Price
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.unit_price}
+                          onChange={(e) =>
+                            handleLineItemChange(
+                              index,
+                              'unit_price',
+                              parseFloat(e.target.value) || 0
+                            )
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Total
+                          </label>
+                          <div className="px-3 py-2 bg-white rounded-lg border border-gray-300 text-sm font-medium">
+                            ${item.total_price.toFixed(2)}
+                          </div>
+                        </div>
+                        {lineItems.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeLineItem(index)}
+                            className="p-2 text-red-600 hover:text-red-800 transition-colors"
+                            title="Remove item"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Line Items Total */}
+              <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <span className="text-lg font-semibold text-gray-900">Line Items Total:</span>
+                  <span className="text-2xl font-bold text-blue-600">
+                    ${lineItems.reduce((sum, item) => sum + item.total_price, 0).toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

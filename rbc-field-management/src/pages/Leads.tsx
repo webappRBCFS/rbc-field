@@ -15,22 +15,36 @@ import {
   TrendingDownIcon,
   FileTextIcon,
   UserCheckIcon,
+  SaveIcon,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { convertLeadToCustomer } from '../lib/leadConversion'
+import { getEntityActivities, ActivityLog, logActivity } from '../utils/activityLogger'
 
 interface Lead {
   id: string
   company_name?: string
   company_address?: string
+  company_address_line_2?: string
   company_phone?: string
   company_email?: string
   company_website?: string
-  contacts?: Array<{ id: string; name: string; phone: string; cell: string; email: string }>
+  contacts?: Array<{
+    id: string
+    name: string
+    phone: string
+    extension?: string
+    cell: string
+    email: string
+  }>
   projects?: Array<{
     id: string
     type: string
     address: string
+    address_line_2?: string
+    city?: string
+    state?: string
+    zip?: string
     unit_count: string
     work_type: string
     notes: string
@@ -98,6 +112,12 @@ export function Leads() {
   const [saving, setSaving] = useState(false)
   const [showConvertModal, setShowConvertModal] = useState(false)
   const [converting, setConverting] = useState(false)
+  const [newLeadNote, setNewLeadNote] = useState('')
+  const [savingLeadNote, setSavingLeadNote] = useState(false)
+  const [leadActivities, setLeadActivities] = useState<ActivityLog[]>([])
+  const [isEditingNextActivityDate, setIsEditingNextActivityDate] = useState(false)
+  const [nextActivityDateValue, setNextActivityDateValue] = useState<string>('')
+  const [savingNextActivityDate, setSavingNextActivityDate] = useState(false)
   const [conversionData, setConversionData] = useState({
     company_name: '',
     contact_first_name: '',
@@ -205,9 +225,136 @@ export function Leads() {
     }
   }
 
-  const handleViewLead = (lead: Lead) => {
+  const formatDateForDisplay = (dateString: string | undefined): string => {
+    if (!dateString) return 'Not set'
+    // Format date consistently - convert YYYY-MM-DD to readable format
+    const date = new Date(dateString + 'T00:00:00') // Add time to avoid timezone issues
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  }
+
+  const handleViewLead = async (lead: Lead) => {
     setSelectedLead(lead)
     setShowViewModal(true)
+    setNewLeadNote('') // Reset note input when opening modal
+    // Ensure date is in YYYY-MM-DD format for the input field
+    if (lead.next_activity_date) {
+      const date = new Date(lead.next_activity_date + 'T00:00:00')
+      const formattedDate = date.toISOString().split('T')[0]
+      setNextActivityDateValue(formattedDate)
+    } else {
+      setNextActivityDateValue('')
+    }
+    setIsEditingNextActivityDate(false)
+    if (lead.id) {
+      try {
+        const acts = await getEntityActivities('lead', lead.id)
+        setLeadActivities(acts)
+      } catch (error) {
+        console.error('Error fetching lead activities:', error)
+      }
+    }
+  }
+
+  const handleAddLeadNote = async () => {
+    if (!newLeadNote.trim() || !selectedLead?.id) return
+
+    setSavingLeadNote(true)
+    try {
+      const noteToAdd = {
+        timestamp: new Date().toISOString(),
+        note: newLeadNote.trim(),
+      }
+
+      const currentNotes = selectedLead.lead_notes || []
+      const updatedNotes = [...currentNotes, noteToAdd]
+
+      const { error } = await supabase
+        .from('leads')
+        .update({ lead_notes: updatedNotes })
+        .eq('id', selectedLead.id)
+
+      if (error) throw error
+
+      // Update local state
+      setSelectedLead((prev) => (prev ? { ...prev, lead_notes: updatedNotes } : null))
+
+      // Update leads list
+      setLeads((prevLeads) =>
+        prevLeads.map((lead) =>
+          lead.id === selectedLead.id ? { ...lead, lead_notes: updatedNotes } : lead
+        )
+      )
+
+      setNewLeadNote('')
+    } catch (error) {
+      console.error('Error adding lead note:', error)
+      alert('Error adding note')
+    } finally {
+      setSavingLeadNote(false)
+    }
+  }
+
+  const handleSaveNextActivityDate = async () => {
+    if (!selectedLead?.id) return
+
+    setSavingNextActivityDate(true)
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .update({ next_activity_date: nextActivityDateValue || null })
+        .eq('id', selectedLead.id)
+
+      if (error) throw error
+
+      // Update local state
+      setSelectedLead((prev) =>
+        prev ? { ...prev, next_activity_date: nextActivityDateValue || undefined } : null
+      )
+
+      // Update leads list
+      setLeads((prevLeads) =>
+        prevLeads.map((lead) =>
+          lead.id === selectedLead.id
+            ? { ...lead, next_activity_date: nextActivityDateValue || undefined }
+            : lead
+        )
+      )
+
+      setIsEditingNextActivityDate(false)
+
+      // Log activity
+      await logActivity({
+        activity_type: 'next_activity_date_updated',
+        entity_type: 'lead',
+        entity_id: selectedLead.id,
+        description: `Next activity date ${
+          nextActivityDateValue ? `set to ${nextActivityDateValue}` : 'cleared'
+        }`,
+      })
+
+      fetchLeads()
+      if (selectedLead.id) {
+        const acts = await getEntityActivities('lead', selectedLead.id)
+        setLeadActivities(acts)
+      }
+    } catch (error) {
+      console.error('Error updating next activity date:', error)
+      alert('Error updating next activity date')
+    } finally {
+      setSavingNextActivityDate(false)
+    }
+  }
+
+  const handleCancelEditNextActivityDate = () => {
+    // Reset to the current value from selectedLead, formatted for the date input
+    if (selectedLead?.next_activity_date) {
+      const date = new Date(selectedLead.next_activity_date + 'T00:00:00')
+      const formattedDate = date.toISOString().split('T')[0]
+      setNextActivityDateValue(formattedDate)
+    } else {
+      setNextActivityDateValue('')
+    }
+    setIsEditingNextActivityDate(false)
   }
 
   const handleEditLead = (lead: Lead) => {
@@ -225,13 +372,29 @@ export function Leads() {
 
     const properties =
       lead.projects && lead.projects.length > 0
-        ? lead.projects.map((p) => ({
-            name: p.type || 'Property',
-            address: p.address || '',
-            type: p.type || '',
-            unit_count: p.unit_count || '',
-            notes: p.notes || '',
-          }))
+        ? lead.projects.map((p) => {
+            // Build full address: street + address_line_2 + city + state + zip
+            const streetAddressParts = [p.address]
+            if (p.address_line_2) {
+              streetAddressParts.push(p.address_line_2)
+            }
+            const streetAddress = streetAddressParts.join(', ')
+
+            // Combine all address components into full address
+            const fullAddressParts = [streetAddress]
+            if (p.city) fullAddressParts.push(p.city)
+            if (p.state) fullAddressParts.push(p.state)
+            if (p.zip) fullAddressParts.push(p.zip)
+            const fullAddress = fullAddressParts.join(', ')
+
+            return {
+              name: p.address || 'Property',
+              address: fullAddress || p.address || '',
+              type: p.type || '',
+              unit_count: p.unit_count || '',
+              notes: p.notes || '',
+            }
+          })
         : []
 
     setConversionData({
@@ -304,6 +467,8 @@ export function Leads() {
     setEditFormData({})
     setSaving(false)
     setViewModalTab('company')
+    setIsEditingNextActivityDate(false)
+    setNextActivityDateValue('')
   }
 
   const handleFormChange = (field: string, value: any) => {
@@ -832,6 +997,12 @@ export function Leads() {
                       </label>
                       <p className="mt-1 text-sm text-gray-900">
                         {selectedLead.company_address || 'N/A'}
+                        {selectedLead.company_address_line_2 && (
+                          <>
+                            <br />
+                            {selectedLead.company_address_line_2}
+                          </>
+                        )}
                       </p>
                     </div>
                     <div>
@@ -904,6 +1075,11 @@ export function Leads() {
                             <div>
                               <label className="block text-xs font-medium text-gray-600">
                                 Phone
+                                {contact.extension && (
+                                  <span className="text-gray-500 font-normal ml-1">
+                                    (Ext: {contact.extension})
+                                  </span>
+                                )}
                               </label>
                               <p className="text-sm text-gray-900">
                                 {contact.phone ? (
@@ -979,7 +1155,15 @@ export function Leads() {
                               <label className="block text-xs font-medium text-gray-600">
                                 Address
                               </label>
-                              <p className="text-sm text-gray-900">{project.address || 'N/A'}</p>
+                              <p className="text-sm text-gray-900">
+                                {project.address || 'N/A'}
+                                {project.address_line_2 && (
+                                  <>
+                                    <br />
+                                    {project.address_line_2}
+                                  </>
+                                )}
+                              </p>
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-gray-600">
@@ -1011,68 +1195,149 @@ export function Leads() {
               {viewModalTab === 'notes' && (
                 <div className="space-y-6">
                   {/* Lead Management Section */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="text-sm font-semibold text-gray-900 mb-3">Lead Management</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Stage</label>
-                        <span
-                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStageColor(
-                            selectedLead.stage
-                          )}`}
-                        >
-                          {selectedLead.stage.replace('_', ' ').toUpperCase()}
-                        </span>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Priority</label>
-                        <span
-                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getPriorityColor(
-                            selectedLead.priority
-                          )}`}
-                        >
-                          {selectedLead.priority.toUpperCase()}
-                        </span>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Next Activity Date
+                  <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Lead Management</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Date for Next Activity
                         </label>
-                        <p className="mt-1 text-sm text-gray-900">
-                          {selectedLead.next_activity_date
-                            ? new Date(selectedLead.next_activity_date).toLocaleDateString()
-                            : 'N/A'}
-                        </p>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Created</label>
-                        <p className="mt-1 text-sm text-gray-900">
-                          {new Date(selectedLead.created_at).toLocaleDateString()}
-                        </p>
+                        <div className="mt-1">
+                          {isEditingNextActivityDate ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="date"
+                                value={nextActivityDateValue}
+                                onChange={(e) => setNextActivityDateValue(e.target.value)}
+                                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                disabled={savingNextActivityDate}
+                              />
+                              <button
+                                onClick={handleSaveNextActivityDate}
+                                disabled={savingNextActivityDate}
+                                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                              >
+                                {savingNextActivityDate ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    Saving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <SaveIcon className="w-4 h-4" />
+                                    Save
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={handleCancelEditNextActivityDate}
+                                disabled={savingNextActivityDate}
+                                className="px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-1">
+                                <CalendarIcon className="w-5 h-5 text-gray-500" />
+                                <p className="text-sm text-gray-900">
+                                  {formatDateForDisplay(selectedLead.next_activity_date)}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => setIsEditingNextActivityDate(true)}
+                                className="text-blue-600 hover:text-blue-800 text-sm underline"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Lead Notes Section */}
-                  <div className="bg-yellow-50 rounded-lg p-4">
-                    <h4 className="text-sm font-semibold text-gray-900 mb-3">Lead Notes</h4>
-                    <div className="space-y-2">
+                  {/* Notes Section */}
+                  <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Lead Notes</h2>
+
+                    {/* Add Note Form */}
+                    <div className="mb-4 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <h3 className="text-sm font-medium text-gray-700 mb-3">Add Note</h3>
+                      <div className="flex gap-2">
+                        <textarea
+                          value={newLeadNote}
+                          onChange={(e) => setNewLeadNote(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.ctrlKey && newLeadNote.trim()) {
+                              handleAddLeadNote()
+                            }
+                          }}
+                          rows={3}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="Add a note... (Ctrl+Enter to submit)"
+                        />
+                        <button
+                          onClick={handleAddLeadNote}
+                          disabled={!newLeadNote.trim() || savingLeadNote}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-start flex items-center gap-2"
+                        >
+                          {savingLeadNote ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <PlusIcon className="w-4 h-4" />
+                              Add
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Press Ctrl+Enter to quickly submit
+                      </p>
+                    </div>
+
+                    {/* Notes List */}
+                    <div className="space-y-3">
                       {selectedLead.lead_notes && selectedLead.lead_notes.length > 0 ? (
                         selectedLead.lead_notes
                           .slice()
                           .reverse()
                           .map((note, index) => (
-                            <div key={index} className="text-sm">
-                              <span className="text-gray-500 text-xs">
+                            <div key={index} className="bg-gray-50 rounded-lg p-4">
+                              <p className="text-sm text-gray-700">{note.note}</p>
+                              <p className="text-xs text-gray-500 mt-2">
                                 {new Date(note.timestamp).toLocaleString()}
-                              </span>
-                              <p className="text-gray-900">{note.note}</p>
+                              </p>
                             </div>
                           ))
                       ) : (
-                        <p className="text-sm text-gray-500 italic">No notes found.</p>
+                        <p className="text-center text-gray-500 py-8">No notes available</p>
                       )}
                     </div>
+                  </div>
+
+                  {/* Activity Section */}
+                  <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Activity</h2>
+                    {leadActivities.length > 0 ? (
+                      <div className="space-y-3">
+                        {leadActivities.map((activity) => (
+                          <div key={activity.id} className="bg-gray-50 rounded-lg p-4">
+                            <p className="text-sm text-gray-700">{activity.description}</p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              {new Date(activity.created_at).toLocaleString()}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-center text-gray-500 py-8">No recent activity</p>
+                    )}
                   </div>
                 </div>
               )}

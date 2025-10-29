@@ -20,6 +20,7 @@ interface Contact {
   id: string
   name: string
   phone: string
+  extension?: string
   cell: string
   email: string
 }
@@ -28,6 +29,7 @@ interface Project {
   id: string
   type: string
   address: string
+  address_line_2?: string
   city: string
   state: string
   zip: string
@@ -51,6 +53,7 @@ export default function LeadCreate() {
   const [companyData, setCompanyData] = useState({
     name: '',
     address: '',
+    address_line_2: '',
     city: '',
     state: '',
     zip: '',
@@ -61,7 +64,7 @@ export default function LeadCreate() {
 
   // Contact Information (array of contacts)
   const [contacts, setContacts] = useState<Contact[]>([
-    { id: '1', name: '', phone: '', cell: '', email: '' },
+    { id: '1', name: '', phone: '', extension: '', cell: '', email: '' },
   ])
 
   // Projects (array of projects)
@@ -70,6 +73,7 @@ export default function LeadCreate() {
       id: '1',
       type: '',
       address: '',
+      address_line_2: '',
       city: '',
       state: '',
       zip: '',
@@ -145,6 +149,7 @@ export default function LeadCreate() {
       id: Date.now().toString(),
       name: '',
       phone: '',
+      extension: '',
       cell: '',
       email: '',
     }
@@ -164,6 +169,7 @@ export default function LeadCreate() {
       id: Date.now().toString(),
       type: '',
       address: '',
+      address_line_2: '',
       city: '',
       state: '',
       zip: '',
@@ -278,7 +284,8 @@ export default function LeadCreate() {
       // Get primary contact if exists
       const primaryContact = contacts[0] || null
 
-      const { error } = await supabase.from('leads').insert({
+      // Build insert object conditionally to avoid errors if column doesn't exist yet
+      const insertData: any = {
         // Company Information
         company_name: companyData.name || null,
         company_address: companyData.address || null,
@@ -288,6 +295,15 @@ export default function LeadCreate() {
         company_phone: companyData.phone || null,
         company_email: companyData.email || null,
         company_website: companyData.website || null,
+      }
+
+      // Only include address_line_2 if it has a value (column may not exist in DB yet)
+      if (companyData.address_line_2) {
+        insertData.company_address_line_2 = companyData.address_line_2
+      }
+
+      const { error } = await supabase.from('leads').insert({
+        ...insertData,
 
         // Contact Information (primary contact in legacy fields)
         contact_first_name: primaryContact?.name || '',
@@ -490,6 +506,20 @@ export default function LeadCreate() {
                         placeholder="Start typing address..."
                       />
                     </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Address Line 2 <span className="text-gray-400 font-normal">(Optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={companyData.address_line_2}
+                        onChange={(e) =>
+                          setCompanyData({ ...companyData, address_line_2: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Office #, Suite, Unit, etc."
+                      />
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
                       <input
@@ -574,31 +604,48 @@ export default function LeadCreate() {
                               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Phone
-                            </label>
-                            <input
-                              type="tel"
-                              value={contact.phone}
-                              onChange={(e) => {
-                                const formatted = e.target.value.replace(/\D/g, '').slice(0, 10)
-                                const display =
-                                  formatted.length > 0
-                                    ? formatted.length <= 3
-                                      ? formatted
-                                      : formatted.length <= 6
-                                      ? `(${formatted.slice(0, 3)}) ${formatted.slice(3)}`
-                                      : `(${formatted.slice(0, 3)}) ${formatted.slice(
-                                          3,
-                                          6
-                                        )}-${formatted.slice(6)}`
-                                    : ''
-                                updateContact(contact.id, 'phone', display)
-                              }}
-                              placeholder="(123) 456-7890"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            />
+                          <div className="flex gap-2">
+                            <div className="flex-1">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Phone
+                              </label>
+                              <input
+                                type="tel"
+                                value={contact.phone}
+                                onChange={(e) => {
+                                  const formatted = e.target.value.replace(/\D/g, '').slice(0, 10)
+                                  const display =
+                                    formatted.length > 0
+                                      ? formatted.length <= 3
+                                        ? formatted
+                                        : formatted.length <= 6
+                                        ? `(${formatted.slice(0, 3)}) ${formatted.slice(3)}`
+                                        : `(${formatted.slice(0, 3)}) ${formatted.slice(
+                                            3,
+                                            6
+                                          )}-${formatted.slice(6)}`
+                                      : ''
+                                  updateContact(contact.id, 'phone', display)
+                                }}
+                                placeholder="(123) 456-7890"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              />
+                            </div>
+                            <div className="w-24">
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Ext. <span className="text-gray-400 font-normal">(Optional)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={contact.extension || ''}
+                                onChange={(e) =>
+                                  updateContact(contact.id, 'extension', e.target.value)
+                                }
+                                placeholder="Ext"
+                                maxLength={10}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              />
+                            </div>
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -746,6 +793,21 @@ export default function LeadCreate() {
                                   placeholder="Start typing project address..."
                                 />
                               </div>
+                              <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Apt/Suite #{' '}
+                                  <span className="text-gray-400 font-normal">(Optional)</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  value={project.address_line_2 || ''}
+                                  onChange={(e) =>
+                                    updateProject(project.id, 'address_line_2', e.target.value)
+                                  }
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                  placeholder="Apartment, Suite, Unit, etc."
+                                />
+                              </div>
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                   City
@@ -882,11 +944,10 @@ export default function LeadCreate() {
                       </div>
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Date for Next Activity *
+                          Date for Next Activity
                         </label>
                         <input
                           type="date"
-                          required
                           value={leadData.next_activity_date}
                           onChange={(e) =>
                             setLeadData({ ...leadData, next_activity_date: e.target.value })

@@ -33,6 +33,7 @@ export default function PropertyCreate() {
     customer_id: '',
     name: '',
     address: '',
+    address_line_2: '',
     city: '',
     state: '',
     zip: '',
@@ -206,27 +207,33 @@ export default function PropertyCreate() {
           access_info: a.access_info,
         }))
 
+      // Build insert object conditionally to avoid errors if column doesn't exist yet
+      const insertData: any = {
+        customer_id: propertyData.customer_id,
+        name: propertyData.name,
+        address: propertyData.address || null,
+        city: propertyData.city || null,
+        state: propertyData.state || null,
+        zip_code: propertyData.zip || null,
+        building_type: propertyData.building_type || null,
+        units: propertyData.units || null,
+        stories: propertyData.stories || null,
+        access_type: propertyData.access_type || null,
+        access_info: propertyData.access_info || null,
+        additional_access: additionalAccessData.length > 0 ? additionalAccessData : null,
+        payment_method: propertyData.payment_method || null,
+        sales_tax_status: propertyData.sales_tax_status || null,
+      }
+
+      // Only include address_line_2 if it has a value (column may not exist in DB yet)
+      if (propertyData.address_line_2) {
+        insertData.address_line_2 = propertyData.address_line_2
+      }
+
       // Create property
       const { data: property, error: propertyError } = await supabase
         .from('properties')
-        .insert([
-          {
-            customer_id: propertyData.customer_id,
-            name: propertyData.name,
-            address: propertyData.address || null,
-            city: propertyData.city || null,
-            state: propertyData.state || null,
-            zip_code: propertyData.zip || null,
-            building_type: propertyData.building_type || null,
-            units: propertyData.units || null,
-            stories: propertyData.stories || null,
-            access_type: propertyData.access_type || null,
-            access_info: propertyData.access_info || null,
-            additional_access: additionalAccessData.length > 0 ? additionalAccessData : null,
-            payment_method: propertyData.payment_method || null,
-            sales_tax_status: propertyData.sales_tax_status || null,
-          },
-        ])
+        .insert([insertData])
         .select()
         .single()
 
@@ -382,6 +389,20 @@ export default function PropertyCreate() {
                         onChange={handleAddressChange}
                         onAddressSelect={handleAddressSelect}
                         placeholder="Enter full address"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Apt/Suite # <span className="text-gray-400 font-normal">(Optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={propertyData.address_line_2}
+                        onChange={(e) =>
+                          setPropertyData({ ...propertyData, address_line_2: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Apartment, Suite, Unit, etc."
                       />
                     </div>
                     <div>

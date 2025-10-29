@@ -3,7 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeftIcon, PlusIcon, XIcon, HomeIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { AddressAutocomplete } from '../components/AddressAutocomplete'
-import { logActivity, ActivityTypes, getEntityActivities, ActivityLog } from '../utils/activityLogger'
+import {
+  logActivity,
+  ActivityTypes,
+  getEntityActivities,
+  ActivityLog,
+} from '../utils/activityLogger'
 
 interface Customer {
   id: string
@@ -34,6 +39,7 @@ export default function PropertyEdit() {
     customer_id: '',
     name: '',
     address: '',
+    address_line_2: '',
     city: '',
     state: '',
     zip: '',
@@ -95,6 +101,7 @@ export default function PropertyEdit() {
         customer_id: property.customer_id || '',
         name: property.name || '',
         address: property.address || '',
+        address_line_2: property.address_line_2 || '',
         city: property.city || '',
         state: property.state || '',
         zip: property.zip_code || '',
@@ -181,9 +188,7 @@ export default function PropertyEdit() {
   }
 
   const updateAdditionalAccess = (id: string, field: string, value: string) => {
-    setAdditionalAccess(
-      additionalAccess.map((a) => (a.id === id ? { ...a, [field]: value } : a))
-    )
+    setAdditionalAccess(additionalAccess.map((a) => (a.id === id ? { ...a, [field]: value } : a)))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -212,25 +217,33 @@ export default function PropertyEdit() {
           access_info: a.access_info,
         }))
 
+      // Build update object conditionally to avoid errors if column doesn't exist yet
+      const updateData: any = {
+        customer_id: propertyData.customer_id,
+        name: propertyData.name,
+        address: propertyData.address || null,
+        city: propertyData.city || null,
+        state: propertyData.state || null,
+        zip_code: propertyData.zip || null,
+        building_type: propertyData.building_type || null,
+        units: propertyData.units ? parseInt(propertyData.units) : null,
+        stories: propertyData.stories ? parseInt(propertyData.stories) : null,
+        access_type: propertyData.access_type || null,
+        access_info: propertyData.access_info || null,
+        additional_access: additionalAccessData.length > 0 ? additionalAccessData : null,
+        payment_method: propertyData.payment_method || null,
+        sales_tax_status: propertyData.sales_tax_status || null,
+      }
+
+      // Only include address_line_2 if it has a value (column may not exist in DB yet)
+      if (propertyData.address_line_2) {
+        updateData.address_line_2 = propertyData.address_line_2
+      }
+
       // Update property
       const { error: updateError } = await supabase
         .from('properties')
-        .update({
-          customer_id: propertyData.customer_id,
-          name: propertyData.name,
-          address: propertyData.address || null,
-          city: propertyData.city || null,
-          state: propertyData.state || null,
-          zip_code: propertyData.zip || null,
-          building_type: propertyData.building_type || null,
-          units: propertyData.units ? parseInt(propertyData.units) : null,
-          stories: propertyData.stories ? parseInt(propertyData.stories) : null,
-          access_type: propertyData.access_type || null,
-          access_info: propertyData.access_info || null,
-          additional_access: additionalAccessData.length > 0 ? additionalAccessData : null,
-          payment_method: propertyData.payment_method || null,
-          sales_tax_status: propertyData.sales_tax_status || null,
-        })
+        .update(updateData)
         .eq('id', id)
 
       if (updateError) throw updateError
@@ -383,6 +396,20 @@ export default function PropertyEdit() {
                         placeholder="Enter full address"
                       />
                     </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Apt/Suite # <span className="text-gray-400 font-normal">(Optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={propertyData.address_line_2}
+                        onChange={(e) =>
+                          setPropertyData({ ...propertyData, address_line_2: e.target.value })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Apartment, Suite, Unit, etc."
+                      />
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">City *</label>
                       <input
@@ -394,12 +421,16 @@ export default function PropertyEdit() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">State *</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        State *
+                      </label>
                       <input
                         type="text"
                         required
                         value={propertyData.state}
-                        onChange={(e) => setPropertyData({ ...propertyData, state: e.target.value })}
+                        onChange={(e) =>
+                          setPropertyData({ ...propertyData, state: e.target.value })
+                        }
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
@@ -448,13 +479,17 @@ export default function PropertyEdit() {
                       <input
                         type="number"
                         value={propertyData.units}
-                        onChange={(e) => setPropertyData({ ...propertyData, units: e.target.value })}
+                        onChange={(e) =>
+                          setPropertyData({ ...propertyData, units: e.target.value })
+                        }
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         placeholder="e.g., 10"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Stories</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Stories
+                      </label>
                       <input
                         type="number"
                         value={propertyData.stories}
@@ -512,7 +547,9 @@ export default function PropertyEdit() {
                           <input
                             type="text"
                             value={access.location}
-                            onChange={(e) => updateAdditionalAccess(access.id, 'location', e.target.value)}
+                            onChange={(e) =>
+                              updateAdditionalAccess(access.id, 'location', e.target.value)
+                            }
                             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             placeholder="Location (e.g., Basement)"
                           />
@@ -635,7 +672,10 @@ export default function PropertyEdit() {
                         .slice()
                         .reverse()
                         .map((note) => (
-                          <div key={note.timestamp} className="flex gap-3 bg-gray-50 rounded-lg p-3">
+                          <div
+                            key={note.timestamp}
+                            className="flex gap-3 bg-gray-50 rounded-lg p-3"
+                          >
                             <div className="flex-1">
                               <p className="text-sm text-gray-700">{note.note}</p>
                               <p className="text-xs text-gray-500 mt-1">

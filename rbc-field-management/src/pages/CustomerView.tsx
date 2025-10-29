@@ -9,8 +9,10 @@ import {
   FileTextIcon,
   ClipboardIcon,
   UsersIcon,
+  SaveIcon,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { getEntityActivities, ActivityLog } from '../utils/activityLogger'
 
 interface CustomerNote {
   timestamp: string
@@ -41,12 +43,26 @@ export default function CustomerView() {
   const [notes, setNotes] = useState<CustomerNote[]>([])
   const [contacts, setContacts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [newNote, setNewNote] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
+  const [activities, setActivities] = useState<ActivityLog[]>([])
 
   useEffect(() => {
     if (id) {
       fetchCustomerData()
+      fetchActivities()
     }
   }, [id])
+
+  const fetchActivities = async () => {
+    if (!id) return
+    try {
+      const acts = await getEntityActivities('customer', id)
+      setActivities(acts)
+    } catch (error) {
+      console.error('Error fetching activities:', error)
+    }
+  }
 
   const fetchCustomerData = async () => {
     try {
@@ -84,6 +100,35 @@ export default function CustomerView() {
       alert('Error loading customer: ' + (error as any).message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAddNote = async () => {
+    if (!newNote.trim() || !id) return
+
+    setSavingNote(true)
+    try {
+      const noteToAdd: CustomerNote = {
+        timestamp: new Date().toISOString(),
+        note: newNote.trim(),
+      }
+
+      const updatedNotes = [...notes, noteToAdd]
+
+      const { error } = await supabase
+        .from('customers')
+        .update({ notes: updatedNotes })
+        .eq('id', id)
+
+      if (error) throw error
+
+      setNotes(updatedNotes)
+      setNewNote('')
+    } catch (error) {
+      console.error('Error adding note:', error)
+      alert('Error adding note')
+    } finally {
+      setSavingNote(false)
     }
   }
 
@@ -210,7 +255,7 @@ export default function CustomerView() {
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Notes
+              Notes & Activity
             </button>
           </div>
 
@@ -381,24 +426,86 @@ export default function CustomerView() {
 
             {/* Notes Tab */}
             {activeTab === 'notes' && (
-              <div className="space-y-3">
-                {notes.length > 0 ? (
-                  notes
-                    .slice()
-                    .reverse()
-                    .map((note) => (
-                      <div key={note.timestamp} className="flex gap-3 bg-gray-50 rounded-lg p-4">
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-700">{note.note}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {new Date(note.timestamp).toLocaleString()}
+              <div className="space-y-6">
+                {/* Notes Section */}
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Customer Notes</h2>
+
+                  {/* Add Note Form */}
+                  <div className="mb-4 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <h3 className="text-sm font-medium text-gray-700 mb-3">Add Note</h3>
+                    <div className="flex gap-2">
+                      <textarea
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && e.ctrlKey && newNote.trim()) {
+                            handleAddNote()
+                          }
+                        }}
+                        rows={3}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Add a note... (Ctrl+Enter to submit)"
+                      />
+                      <button
+                        onClick={handleAddNote}
+                        disabled={!newNote.trim() || savingNote}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-start flex items-center gap-2"
+                      >
+                        {savingNote ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <PlusIcon className="w-4 h-4" />
+                            Add
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">Press Ctrl+Enter to quickly submit</p>
+                  </div>
+
+                  {/* Notes List */}
+                  <div className="space-y-3">
+                    {notes.length > 0 ? (
+                      notes
+                        .slice()
+                        .reverse()
+                        .map((note) => (
+                          <div key={note.timestamp} className="bg-gray-50 rounded-lg p-4">
+                            <p className="text-sm text-gray-700">{note.note}</p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              {new Date(note.timestamp).toLocaleString()}
+                            </p>
+                          </div>
+                        ))
+                    ) : (
+                      <p className="text-center text-gray-500 py-8">No notes available</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Activity Section */}
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Activity</h2>
+                  {activities.length > 0 ? (
+                    <div className="space-y-3">
+                      {activities.map((activity) => (
+                        <div key={activity.id} className="bg-gray-50 rounded-lg p-4">
+                          <p className="text-sm text-gray-700">{activity.description}</p>
+                          <p className="text-xs text-gray-500 mt-2">
+                            {new Date(activity.created_at).toLocaleString()}
                           </p>
                         </div>
-                      </div>
-                    ))
-                ) : (
-                  <p className="text-center text-gray-500 py-8">No notes yet</p>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-center text-gray-500 py-8">No recent activity</p>
+                  )}
+                </div>
               </div>
             )}
           </div>

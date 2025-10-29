@@ -9,6 +9,7 @@ import {
   ClipboardListIcon,
   FileTextIcon,
   DollarSignIcon,
+  PlusIcon,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getEntityActivities, ActivityLog } from '../utils/activityLogger'
@@ -34,6 +35,8 @@ export default function PropertyView() {
   const [proposals, setProposals] = useState<any[]>([])
   const [invoices, setInvoices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [newNote, setNewNote] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -93,6 +96,35 @@ export default function PropertyView() {
       setActivities(acts)
     } catch (error) {
       console.error('Error fetching activities:', error)
+    }
+  }
+
+  const handleAddNote = async () => {
+    if (!newNote.trim() || !id) return
+
+    setSavingNote(true)
+    try {
+      const noteToAdd: PropertyNote = {
+        timestamp: new Date().toISOString(),
+        note: newNote.trim(),
+      }
+
+      const updatedNotes = [...notes, noteToAdd]
+
+      const { error } = await supabase
+        .from('properties')
+        .update({ notes: updatedNotes })
+        .eq('id', id)
+
+      if (error) throw error
+
+      setNotes(updatedNotes)
+      setNewNote('')
+    } catch (error) {
+      console.error('Error adding note:', error)
+      alert('Error adding note')
+    } finally {
+      setSavingNote(false)
     }
   }
 
@@ -197,6 +229,12 @@ export default function PropertyView() {
                 <h1 className="text-3xl font-bold text-gray-900">{property.name}</h1>
                 <p className="text-gray-600">
                   {property.address || 'No address provided'}
+                  {property.address_line_2 && (
+                    <>
+                      <br />
+                      {property.address_line_2}
+                    </>
+                  )}
                   {property.city && `, ${property.city}`}
                   {property.state && ` ${property.state}`}
                 </p>
@@ -327,13 +365,23 @@ export default function PropertyView() {
                       <p className="mt-1 text-sm text-gray-900">{property.name || 'N/A'}</p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Building Type</label>
-                      <p className="mt-1 text-sm text-gray-900">{property.building_type || 'N/A'}</p>
+                      <label className="block text-sm font-medium text-gray-700">
+                        Building Type
+                      </label>
+                      <p className="mt-1 text-sm text-gray-900">
+                        {property.building_type || 'N/A'}
+                      </p>
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium text-gray-700">Address</label>
                       <p className="mt-1 text-sm text-gray-900">
                         {property.address || 'N/A'}
+                        {property.address_line_2 && (
+                          <>
+                            <br />
+                            {property.address_line_2}
+                          </>
+                        )}
                         {property.city && `, ${property.city}`}
                         {property.state && `, ${property.state}`}
                         {property.zip_code && ` ${property.zip_code}`}
@@ -356,40 +404,54 @@ export default function PropertyView() {
                       <p className="mt-1 text-sm text-gray-900">{property.access_info || 'N/A'}</p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Payment Method</label>
-                      <p className="mt-1 text-sm text-gray-900">{property.payment_method || 'N/A'}</p>
+                      <label className="block text-sm font-medium text-gray-700">
+                        Payment Method
+                      </label>
+                      <p className="mt-1 text-sm text-gray-900">
+                        {property.payment_method || 'N/A'}
+                      </p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">Sales Tax Status</label>
-                      <p className="mt-1 text-sm text-gray-900">{property.sales_tax_status || 'N/A'}</p>
+                      <label className="block text-sm font-medium text-gray-700">
+                        Sales Tax Status
+                      </label>
+                      <p className="mt-1 text-sm text-gray-900">
+                        {property.sales_tax_status || 'N/A'}
+                      </p>
                     </div>
                     {customer && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Customer</label>
-                        <p className="mt-1 text-sm text-gray-900">{customer.company_name || 'N/A'}</p>
+                        <p className="mt-1 text-sm text-gray-900">
+                          {customer.company_name || 'N/A'}
+                        </p>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {/* Additional Access */}
-                {property.additional_access && Array.isArray(property.additional_access) && property.additional_access.length > 0 && (
-                  <div className="bg-green-50 rounded-lg p-6">
-                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Additional Access</h2>
-                    <div className="space-y-3">
-                      {property.additional_access.map((access: any, index: number) => (
-                        <div key={index} className="bg-white rounded-lg p-4">
-                          <p className="text-sm font-medium text-gray-900">
-                            {access.location || 'Unknown Location'}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            {access.access_type} - {access.access_info}
-                          </p>
-                        </div>
-                      ))}
+                {property.additional_access &&
+                  Array.isArray(property.additional_access) &&
+                  property.additional_access.length > 0 && (
+                    <div className="bg-green-50 rounded-lg p-6">
+                      <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                        Additional Access
+                      </h2>
+                      <div className="space-y-3">
+                        {property.additional_access.map((access: any, index: number) => (
+                          <div key={index} className="bg-white rounded-lg p-4">
+                            <p className="text-sm font-medium text-gray-900">
+                              {access.location || 'Unknown Location'}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              {access.access_type} - {access.access_info}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
               </div>
             )}
 
@@ -431,6 +493,45 @@ export default function PropertyView() {
                 {/* Notes Section */}
                 <div className="bg-white rounded-lg border border-gray-200 p-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">Property Notes</h2>
+
+                  {/* Add Note Form */}
+                  <div className="mb-4 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <h3 className="text-sm font-medium text-gray-700 mb-3">Add Note</h3>
+                    <div className="flex gap-2">
+                      <textarea
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && e.ctrlKey && newNote.trim()) {
+                            handleAddNote()
+                          }
+                        }}
+                        rows={3}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Add a note... (Ctrl+Enter to submit)"
+                      />
+                      <button
+                        onClick={handleAddNote}
+                        disabled={!newNote.trim() || savingNote}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-start flex items-center gap-2"
+                      >
+                        {savingNote ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <PlusIcon className="w-4 h-4" />
+                            Add
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">Press Ctrl+Enter to quickly submit</p>
+                  </div>
+
+                  {/* Notes List */}
                   <div className="space-y-3">
                     {notes.length > 0 ? (
                       notes

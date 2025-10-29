@@ -8,8 +8,11 @@ import {
   ClockIcon,
   FileTextIcon,
   ChevronDownIcon,
+  SaveIcon,
+  XIcon,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { logActivity, getEntityActivities, ActivityLog } from '../utils/activityLogger'
 
 interface Contract {
   id: string
@@ -84,17 +87,34 @@ export function ContractDetails() {
   const [contract, setContract] = useState<Contract | null>(null)
   const [loading, setLoading] = useState(true)
   const [contractServices, setContractServices] = useState<any[]>([])
+  const [lineItems, setLineItems] = useState<any[]>([])
   const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'billing' | 'notes'>(
     'overview'
   )
+  const [isEditingNotes, setIsEditingNotes] = useState(false)
+  const [notesValue, setNotesValue] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
+  const [activities, setActivities] = useState<ActivityLog[]>([])
 
   useEffect(() => {
     if (id) {
       fetchContract(id)
       fetchContractServices(id)
+      fetchContractLineItems(id)
+      fetchActivities()
     }
   }, [id])
+
+  const fetchActivities = async () => {
+    if (!id) return
+    try {
+      const acts = await getEntityActivities('contract', id)
+      setActivities(acts)
+    } catch (error) {
+      console.error('Error fetching activities:', error)
+    }
+  }
 
   const fetchContract = async (contractId: string) => {
     try {
@@ -121,12 +141,52 @@ export function ContractDetails() {
       console.log('ContractDetails - DSNY integration:', contractData.dsny_integration)
 
       setContract(contractData)
+      setNotesValue(contractData.notes || '')
     } catch (error) {
       console.error('Error fetching contract:', error)
       alert('Error loading contract details')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSaveNotes = async () => {
+    if (!id) return
+
+    setSavingNotes(true)
+    try {
+      const { error } = await supabase
+        .from('contracts')
+        .update({ notes: notesValue || null })
+        .eq('id', id)
+
+      if (error) throw error
+
+      // Update local state
+      setContract((prev) => (prev ? { ...prev, notes: notesValue || undefined } : null))
+
+      // Log activity
+      await logActivity({
+        activity_type: 'updated',
+        entity_type: 'contract',
+        entity_id: id,
+        description: 'Contract notes were updated',
+        metadata: { field: 'notes' },
+      })
+
+      setIsEditingNotes(false)
+      alert('Notes saved successfully!')
+    } catch (error) {
+      console.error('Error saving notes:', error)
+      alert('Error saving notes')
+    } finally {
+      setSavingNotes(false)
+    }
+  }
+
+  const handleCancelEditNotes = () => {
+    setNotesValue(contract?.notes || '')
+    setIsEditingNotes(false)
   }
 
   const fetchContractServices = async (contractId: string) => {
@@ -147,6 +207,32 @@ export function ContractDetails() {
       setContractServices(data || [])
     } catch (error) {
       console.error('Error fetching contract services:', error)
+    }
+  }
+
+  const fetchContractLineItems = async (contractId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('contract_line_items')
+        .select(
+          `
+          *,
+          service_item:service_items(id, name)
+        `
+        )
+        .eq('contract_id', contractId)
+        .order('sort_order', { ascending: true })
+
+      if (error) {
+        // Table might not exist yet, that's okay
+        console.warn('Error fetching contract line items (table may not exist):', error)
+        return
+      }
+
+      console.log('Fetched contract line items:', data)
+      setLineItems(data || [])
+    } catch (error) {
+      console.error('Error fetching contract line items:', error)
     }
   }
 
@@ -718,19 +804,159 @@ export function ContractDetails() {
                   </div>
                 </div>
               </div>
+
+              {/* Line Items */}
+              {lineItems.length > 0 && (
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Line Items</h2>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Description
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Quantity
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Unit Type
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Unit Price
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Total
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {lineItems.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              <div className="flex flex-col gap-1">
+                                <span>{item.description}</span>
+                                {item.service_item && (
+                                  <span className="text-xs text-blue-600 font-medium">
+                                    From Catalog: {item.service_item.name}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{item.quantity}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {item.unit_type
+                                ? item.unit_type
+                                    .split('_')
+                                    .map(
+                                      (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
+                                    )
+                                    .join(' ')
+                                : 'N/A'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                              ${item.unit_price?.toFixed(2) || '0.00'}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
+                              ${item.total_price?.toFixed(2) || '0.00'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50">
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="px-4 py-3 text-sm font-medium text-gray-900 text-right"
+                          >
+                            Total:
+                          </td>
+                          <td className="px-4 py-3 text-sm font-bold text-gray-900 text-right">
+                            $
+                            {lineItems
+                              .reduce((sum, item) => sum + (item.total_price || 0), 0)
+                              .toFixed(2)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* Notes Tab */}
           {activeTab === 'notes' && (
             <div className="space-y-6">
-              {/* Notes */}
-              {contract.notes && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
-                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{contract.notes}</p>
+              {/* Notes Section */}
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">Contract Notes</h2>
+                  {!isEditingNotes && (
+                    <button
+                      onClick={() => setIsEditingNotes(true)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      <EditIcon className="w-4 h-4" />
+                      Edit Notes
+                    </button>
+                  )}
                 </div>
-              )}
+
+                {isEditingNotes ? (
+                  <div className="space-y-4">
+                    <textarea
+                      value={notesValue}
+                      onChange={(e) => setNotesValue(e.target.value)}
+                      rows={10}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter notes and additional information..."
+                    />
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleSaveNotes}
+                        disabled={savingNotes}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                      >
+                        <SaveIcon className="w-4 h-4" />
+                        {savingNotes ? 'Saving...' : 'Save Notes'}
+                      </button>
+                      <button
+                        onClick={handleCancelEditNotes}
+                        disabled={savingNotes}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors disabled:opacity-50"
+                      >
+                        <XIcon className="w-4 h-4" />
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : contract.notes ? (
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{contract.notes}</p>
+                ) : (
+                  <p className="text-center text-gray-500 py-8">No notes available</p>
+                )}
+              </div>
+
+              {/* Activity Section */}
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Activity</h2>
+                {activities.length > 0 ? (
+                  <div className="space-y-3">
+                    {activities.map((activity) => (
+                      <div key={activity.id} className="bg-gray-50 rounded-lg p-4">
+                        <p className="text-sm text-gray-700">{activity.description}</p>
+                        <p className="text-xs text-gray-500 mt-2">
+                          {new Date(activity.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-center text-gray-500 py-8">No recent activity</p>
+                )}
+              </div>
             </div>
           )}
         </div>

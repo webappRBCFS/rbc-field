@@ -8,11 +8,17 @@ interface Proposal {
   proposal_number: string
   title: string
   customer_id?: string
+  lead_id?: string
   property_id?: string
   total_amount: number
   status: 'draft' | 'sent' | 'viewed' | 'approved' | 'rejected' | 'expired'
   created_at: string
   customer?: {
+    company_name?: string
+    contact_first_name?: string
+    contact_last_name?: string
+  }
+  lead?: {
     company_name?: string
     contact_first_name?: string
     contact_last_name?: string
@@ -48,12 +54,14 @@ export function Proposals() {
         return
       }
 
-      // Enrich proposals with customer and property data
+      // Enrich proposals with customer/lead and property data
       const enrichedProposals = await Promise.all(
         proposalsData.map(async (proposal) => {
           let customer = null
+          let lead = null
           let property = null
 
+          // Fetch customer if exists
           if (proposal.customer_id) {
             const { data: customerData } = await supabase
               .from('customers')
@@ -63,18 +71,36 @@ export function Proposals() {
             customer = customerData
           }
 
-          if (proposal.property_id) {
-            const { data: propertyData } = await supabase
-              .from('properties')
-              .select('id, name, address')
-              .eq('id', proposal.property_id)
+          // Fetch lead if exists (may exist even if customer exists for converted leads)
+          if (proposal.lead_id) {
+            const { data: leadData } = await supabase
+              .from('leads')
+              .select('id, company_name, contact_first_name, contact_last_name')
+              .eq('id', proposal.lead_id)
               .single()
-            property = propertyData
+            lead = leadData
+          }
+
+          // Fetch property if exists and it's a valid UUID (for customers)
+          if (proposal.property_id && proposal.customer_id) {
+            // Only fetch if it's a valid UUID (not project-${index})
+            if (
+              typeof proposal.property_id === 'string' &&
+              !proposal.property_id.startsWith('project-')
+            ) {
+              const { data: propertyData } = await supabase
+                .from('properties')
+                .select('id, name, address')
+                .eq('id', proposal.property_id)
+                .single()
+              property = propertyData
+            }
           }
 
           return {
             ...proposal,
             customer,
+            lead,
             property,
             total_amount: proposal.total || 0,
           }
@@ -143,13 +169,22 @@ export function Proposals() {
   }
 
   const filteredProposals = proposals.filter((proposal) => {
+    const customerName = proposal.customer
+      ? proposal.customer.company_name ||
+        `${proposal.customer.contact_first_name || ''} ${
+          proposal.customer.contact_last_name || ''
+        }`.trim()
+      : ''
+    const leadName = proposal.lead
+      ? proposal.lead.company_name ||
+        `${proposal.lead.contact_first_name || ''} ${proposal.lead.contact_last_name || ''}`.trim()
+      : ''
+
     const matchesSearch =
       proposal.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       proposal.proposal_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      proposal.customer?.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      `${proposal.customer?.contact_first_name} ${proposal.customer?.contact_last_name}`
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase())
+      customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      leadName.toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesStatus = filterStatus === 'all' || proposal.status === filterStatus
 
@@ -312,9 +347,19 @@ export function Proposals() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">
-                        {proposal.customer?.company_name ||
-                          `${proposal.customer?.contact_first_name} ${proposal.customer?.contact_last_name}` ||
-                          'N/A'}
+                        {proposal.customer
+                          ? proposal.customer.company_name ||
+                            `${proposal.customer.contact_first_name || ''} ${
+                              proposal.customer.contact_last_name || ''
+                            }`.trim() ||
+                            'N/A'
+                          : proposal.lead
+                          ? proposal.lead.company_name ||
+                            `${proposal.lead.contact_first_name || ''} ${
+                              proposal.lead.contact_last_name || ''
+                            }`.trim() ||
+                            'N/A'
+                          : 'N/A'}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

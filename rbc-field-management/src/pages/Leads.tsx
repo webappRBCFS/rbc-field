@@ -31,7 +31,9 @@ interface Lead {
   company_website?: string
   contacts?: Array<{
     id: string
-    name: string
+    first_name?: string
+    last_name?: string
+    name?: string // Keep for backwards compatibility
     phone: string
     extension?: string
     cell: string
@@ -370,6 +372,20 @@ export function Leads() {
     // Populate the conversion form with lead data
     const primaryContact = lead.contacts && lead.contacts[0] ? lead.contacts[0] : null
 
+    // Handle backwards compatibility: if contact has 'name' but not first_name/last_name, split it
+    let contactFirstName = ''
+    let contactLastName = ''
+    if (primaryContact) {
+      if (primaryContact.first_name || primaryContact.last_name) {
+        contactFirstName = primaryContact.first_name || ''
+        contactLastName = primaryContact.last_name || ''
+      } else if (primaryContact.name) {
+        const nameParts = primaryContact.name.trim().split(' ')
+        contactFirstName = nameParts[0] || ''
+        contactLastName = nameParts.slice(1).join(' ') || ''
+      }
+    }
+
     const properties =
       lead.projects && lead.projects.length > 0
         ? lead.projects.map((p) => {
@@ -399,8 +415,8 @@ export function Leads() {
 
     setConversionData({
       company_name: lead.company_name || '',
-      contact_first_name: primaryContact?.name || lead.contact_first_name || '',
-      contact_last_name: lead.contact_last_name || '',
+      contact_first_name: contactFirstName || lead.contact_first_name || '',
+      contact_last_name: contactLastName || lead.contact_last_name || '',
       email: primaryContact?.email || lead.email || '',
       phone: primaryContact?.phone || lead.phone || '',
       billing_address: lead.company_address || lead.address || '',
@@ -1070,7 +1086,11 @@ export function Leads() {
                               <label className="block text-xs font-medium text-gray-600">
                                 Name
                               </label>
-                              <p className="text-sm text-gray-900">{contact.name || 'N/A'}</p>
+                              <p className="text-sm text-gray-900">
+                                {contact.first_name || contact.last_name
+                                  ? `${contact.first_name || ''} ${contact.last_name || ''}`.trim()
+                                  : contact.name || 'N/A'}
+                              </p>
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-gray-600">

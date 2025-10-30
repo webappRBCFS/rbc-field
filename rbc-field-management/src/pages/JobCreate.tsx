@@ -10,6 +10,7 @@ import {
   AlertCircleIcon,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { JobGeneration } from '../components/JobGeneration'
 import { ContractGeneration } from '../components/ContractGeneration'
 
@@ -35,6 +36,8 @@ interface ServiceCategory {
 }
 
 export function JobCreate() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [showFromProposal, setShowFromProposal] = useState(false)
   const [showFromContract, setShowFromContract] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -69,7 +72,52 @@ export function JobCreate() {
   useEffect(() => {
     fetchCustomers()
     fetchServiceCategories()
+
+    // Check if proposalId is in URL (from ProposalView/ProposalEdit)
+    const proposalId = searchParams.get('proposalId')
+    if (proposalId) {
+      loadProposalData(proposalId)
+    }
   }, [])
+
+  const loadProposalData = async (proposalId: string) => {
+    try {
+      // Fetch proposal with all related data
+      const { data: proposal, error } = await supabase
+        .from('proposals')
+        .select(`
+          *,
+          customer_id,
+          property_id
+        `)
+        .eq('id', proposalId)
+        .single()
+
+      if (error) throw error
+
+      if (proposal) {
+        // Pre-populate form data from proposal
+        setFormData((prev) => ({
+          ...prev,
+          title: proposal.title || '',
+          description: proposal.description || '',
+          service_type: proposal.template_type || '',
+          customer_id: proposal.customer_id || '',
+          property_id: proposal.property_id || '',
+          quoted_amount: proposal.total || proposal.total_amount || 0,
+          notes: proposal.description || '',
+        }))
+
+        // If customer_id is set, fetch properties
+        if (proposal.customer_id) {
+          await fetchProperties(proposal.customer_id)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading proposal data:', error)
+      alert('Error loading proposal data: ' + (error as any).message)
+    }
+  }
 
   const fetchCustomers = async () => {
     try {

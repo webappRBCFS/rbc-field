@@ -12,7 +12,8 @@ import {
   SaveIcon,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { getEntityActivities, ActivityLog, logActivity } from '../utils/activityLogger'
+import { getEntityActivities, ActivityLog, logActivity, ActivityTypes } from '../utils/activityLogger'
+import { convertLeadToCustomer } from '../lib/leadConversion'
 
 interface ProposalNote {
   timestamp: string
@@ -39,6 +40,28 @@ export default function ProposalView() {
   const [isEditingStatus, setIsEditingStatus] = useState(false)
   const [statusValue, setStatusValue] = useState<string>('')
   const [savingStatus, setSavingStatus] = useState(false)
+  const [showConvertModal, setShowConvertModal] = useState(false)
+  const [converting, setConverting] = useState(false)
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null)
+  const [pendingAction, setPendingAction] = useState<'create-contract' | 'create-job' | null>(null)
+  const [conversionData, setConversionData] = useState({
+    company_name: '',
+    contact_first_name: '',
+    contact_last_name: '',
+    email: '',
+    phone: '',
+    billing_address: '',
+    billing_city: '',
+    billing_state: '',
+    billing_zip_code: '',
+    properties: [] as Array<{
+      name: string
+      address: string
+      type: string
+      unit_count: string
+      notes: string
+    }>,
+  })
 
   useEffect(() => {
     if (id) {
@@ -93,10 +116,24 @@ export default function ProposalView() {
       if (proposalError) throw proposalError
       setProposal(proposalData)
 
-      // Fetch notes
-      if (proposalData.notes && Array.isArray(proposalData.notes)) {
-        setNotes(proposalData.notes)
+      // Fetch notes - handle both JSONB array and JSON string
+      let parsedNotes: ProposalNote[] = []
+      if (proposalData.notes) {
+        if (Array.isArray(proposalData.notes)) {
+          parsedNotes = proposalData.notes
+        } else if (typeof proposalData.notes === 'string') {
+          try {
+            const parsed = JSON.parse(proposalData.notes)
+            if (Array.isArray(parsed)) {
+              parsedNotes = parsed
+            }
+          } catch (e) {
+            console.warn('Failed to parse notes as JSON:', e)
+          }
+        }
       }
+      setNotes(parsedNotes)
+      console.log('Fetched notes:', parsedNotes)
 
       // Fetch customer (if exists)
       if (proposalData.customer_id) {
@@ -216,9 +253,11 @@ export default function ProposalView() {
 
       const updatedNotes = [...notes, noteToAdd]
 
+      console.log('Saving notes:', updatedNotes)
+
       const { error } = await supabase
         .from('proposals')
-        .update({ notes: updatedNotes })
+        .update({ notes: updatedNotes }) // Supabase should handle JSONB arrays automatically
         .eq('id', id)
 
       if (error) throw error
@@ -249,18 +288,75 @@ export default function ProposalView() {
       return
     }
 
+    console.log('Status change check:', {
+      newStatus: statusValue,
+      oldStatus: proposal.status,
+      lead_id: proposal.lead_id,
+      customer_id: proposal.customer_id,
+      hasLead: !!proposal.lead_id && proposal.lead_id !== '',
+      hasCustomer: !!proposal.customer_id,
+      leadLoaded: !!lead,
+    })
+
+    // If changing to "approved" and proposal is linked to a lead (not a customer), show convert modal
+    const isApproving = statusValue === 'approved' && proposal.status !== 'approved'
+    const hasLead = proposal.lead_id && proposal.lead_id !== ''
+    const hasCustomer = !!proposal.customer_id
+
+    if (isApproving && hasLead && !hasCustomer) {
+      // If lead isn't loaded, fetch it
+      if (!lead && proposal.lead_id) {
+        try {
+          const { data: leadData, error: leadError } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('id', proposal.lead_id)
+            .single()
+
+          if (!leadError && leadData) {
+            setLead(leadData)
+            console.log('Lead fetched, showing convert modal')
+            populateConversionData(leadData)
+            setPendingStatus(statusValue)
+            setShowConvertModal(true)
+            setIsEditingStatus(false)
+            return
+          } else {
+            console.error('Error fetching lead for conversion:', leadError)
+          }
+        } catch (error) {
+          console.error('Error fetching lead:', error)
+        }
+      } else if (lead) {
+        console.log('Showing convert modal')
+        populateConversionData(lead)
+        setPendingStatus(statusValue)
+        setShowConvertModal(true)
+        setIsEditingStatus(false)
+        return
+      }
+    }
+
+    console.log('Saving status directly')
+    // Otherwise, save status directly
+    await updateProposalStatus(statusValue)
+  }
+
+  const updateProposalStatus = async (newStatus: string) => {
+    if (!id || !newStatus) return
+
     setSavingStatus(true)
     try {
       const oldStatus = proposal.status
       const { error } = await supabase
         .from('proposals')
-        .update({ status: statusValue })
+        .update({ status: newStatus })
         .eq('id', id)
 
       if (error) throw error
 
       // Update local state
-      setProposal({ ...proposal, status: statusValue })
+      setProposal({ ...proposal, status: newStatus })
       setIsEditingStatus(false)
 
       // Log activity
@@ -268,8 +364,8 @@ export default function ProposalView() {
         activity_type: 'status_changed',
         entity_type: 'proposal',
         entity_id: id,
-        description: `Proposal status changed from ${oldStatus} to ${statusValue}`,
-        metadata: { old_status: oldStatus, new_status: statusValue },
+        description: `Proposal status changed from ${oldStatus} to ${newStatus}`,
+        metadata: { old_status: oldStatus, new_status: newStatus },
       })
 
       fetchActivities()
@@ -281,9 +377,311 @@ export default function ProposalView() {
     }
   }
 
+  const populateConversionData = (lead: any) => {
+    const primaryContact = lead.contacts && lead.contacts[0] ? lead.contacts[0] : null
+
+    // Handle backwards compatibility: if contact has 'name' but not first_name/last_name, split it
+    let contactFirstName = ''
+    let contactLastName = ''
+    if (primaryContact) {
+      if (primaryContact.first_name || primaryContact.last_name) {
+        contactFirstName = primaryContact.first_name || ''
+        contactLastName = primaryContact.last_name || ''
+      } else if (primaryContact.name) {
+        const nameParts = primaryContact.name.trim().split(' ')
+        contactFirstName = nameParts[0] || ''
+        contactLastName = nameParts.slice(1).join(' ') || ''
+      }
+    }
+
+    const properties =
+      lead.projects && lead.projects.length > 0
+        ? lead.projects.map((p: any) => {
+            // Build full address: street + address_line_2 + city + state + zip
+            const streetAddressParts = [p.address]
+            if (p.address_line_2) {
+              streetAddressParts.push(p.address_line_2)
+            }
+            const streetAddress = streetAddressParts.join(', ')
+
+            // Combine all address components into full address
+            const fullAddressParts = [streetAddress]
+            if (p.city) fullAddressParts.push(p.city)
+            if (p.state) fullAddressParts.push(p.state)
+            if (p.zip) fullAddressParts.push(p.zip)
+            const fullAddress = fullAddressParts.join(', ')
+
+            return {
+              name: p.address || 'Property',
+              address: fullAddress || p.address || '',
+              type: p.type || '',
+              unit_count: p.unit_count || '',
+              notes: p.notes || '',
+            }
+          })
+        : []
+
+    setConversionData({
+      company_name: lead.company_name || '',
+      contact_first_name: contactFirstName || lead.contact_first_name || '',
+      contact_last_name: contactLastName || lead.contact_last_name || '',
+      email: primaryContact?.email || lead.email || '',
+      phone: primaryContact?.phone || lead.phone || '',
+      billing_address: lead.company_address || lead.address || '',
+      billing_city: lead.city || '',
+      billing_state: lead.state || '',
+      billing_zip_code: lead.zip_code || '',
+      properties: properties,
+    })
+  }
+
+  const handleConversionFormChange = (field: string, value: any) => {
+    setConversionData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handlePropertyChange = (index: number, field: string, value: string) => {
+    setConversionData((prev) => ({
+      ...prev,
+      properties: prev.properties.map((p, i) => (i === index ? { ...p, [field]: value } : p)),
+    }))
+  }
+
+  const addProperty = () => {
+    setConversionData((prev) => ({
+      ...prev,
+      properties: [
+        ...prev.properties,
+        { name: '', address: '', type: '', unit_count: '', notes: '' },
+      ],
+    }))
+  }
+
+  const removeProperty = (index: number) => {
+    setConversionData((prev) => ({
+      ...prev,
+      properties: prev.properties.filter((_, i) => i !== index),
+    }))
+  }
+
+  const handleConfirmConversion = async () => {
+    if (!lead || !id) return
+
+    try {
+      setConverting(true)
+
+      // Update the lead data with conversion form data before converting
+      const primaryContact = lead.contacts && lead.contacts[0] ? lead.contacts[0] : null
+
+      // First update the lead with the new data
+      const { error: leadUpdateError } = await supabase
+        .from('leads')
+        .update({
+          company_name: conversionData.company_name,
+          contact_first_name: conversionData.contact_first_name,
+          contact_last_name: conversionData.contact_last_name,
+          email: conversionData.email,
+          phone: conversionData.phone,
+          company_address: conversionData.billing_address,
+          city: conversionData.billing_city,
+          state: conversionData.billing_state,
+          zip_code: conversionData.billing_zip_code,
+          contacts: primaryContact ? [{
+            ...primaryContact,
+            first_name: conversionData.contact_first_name,
+            last_name: conversionData.contact_last_name,
+            email: conversionData.email,
+            phone: conversionData.phone,
+          }] : [],
+          projects: conversionData.properties.map((prop) => {
+            // Parse the full address back into components
+            const addressParts = prop.address.split(', ')
+            const streetAddress = addressParts[0] || ''
+            const addressLine2 = addressParts.length > 4 ? addressParts[1] : undefined
+            const city = addressParts[addressParts.length - 3] || ''
+            const state = addressParts[addressParts.length - 2] || ''
+            const zip = addressParts[addressParts.length - 1] || ''
+
+            return {
+              address: streetAddress,
+              address_line_2: addressLine2,
+              city: city,
+              state: state,
+              zip: zip,
+              type: prop.type,
+              unit_count: prop.unit_count,
+              notes: prop.notes,
+            }
+          }),
+        })
+        .eq('id', lead.id)
+
+      if (leadUpdateError) {
+        console.error('Error updating lead:', leadUpdateError)
+        throw leadUpdateError
+      }
+
+      // Now convert with the updated lead data
+      // This function also marks the lead as 'won' and links proposal to customer/property
+      const customerId = await convertLeadToCustomer(lead.id)
+
+      // Now update proposal status to approved
+      await updateProposalStatus('approved')
+
+      // Refresh proposal data to show customer instead of lead
+      await fetchProposalData()
+
+      // Check if there's a pending action to perform after conversion
+      if (pendingAction === 'create-contract') {
+        setPendingAction(null)
+        setShowConvertModal(false)
+        navigate(`/contracts/create?proposalId=${id}`)
+        return
+      } else if (pendingAction === 'create-job') {
+        setPendingAction(null)
+        setShowConvertModal(false)
+        navigate(`/jobs/create?proposalId=${id}`)
+        return
+      }
+
+      alert('Lead converted to customer successfully! Proposal approved and linked.')
+      setShowConvertModal(false)
+      setPendingStatus(null)
+    } catch (error) {
+      console.error('Error converting lead:', error)
+      alert('Error converting lead: ' + (error as any).message)
+    } finally {
+      setConverting(false)
+    }
+  }
+
   const handleCancelEditStatus = () => {
     setStatusValue(proposal.status || 'draft')
     setIsEditingStatus(false)
+  }
+
+  const ensureProposalConverted = async (): Promise<boolean> => {
+    // Check if proposal is linked to a lead (not a customer)
+    if (proposal.lead_id && !proposal.customer_id) {
+      // Need to convert lead to customer
+      if (!lead) {
+        // Fetch lead if not loaded
+        try {
+          const { data: leadData, error: leadError } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('id', proposal.lead_id)
+            .single()
+
+          if (!leadError && leadData) {
+            setLead(leadData)
+            populateConversionData(leadData)
+            // Show conversion modal
+            setShowConvertModal(true)
+            return false // Conversion not completed yet
+          } else {
+            console.error('Error fetching lead for conversion:', leadError)
+            alert('Error: Could not load lead information')
+            return false
+          }
+        } catch (error) {
+          console.error('Error fetching lead:', error)
+          alert('Error: Could not load lead information')
+          return false
+        }
+      } else {
+        // Lead already loaded, show conversion modal
+        populateConversionData(lead)
+        setShowConvertModal(true)
+        return false // Conversion not completed yet
+      }
+    }
+    // Already has a customer or no lead, ready to proceed
+    return true
+  }
+
+  const handleCreateContract = async () => {
+    // If already linked to customer/property, just approve and proceed
+    if (proposal.customer_id && !proposal.lead_id) {
+      // Already linked to customer - just approve if not already approved
+      if (proposal.status !== 'approved') {
+        await ensureProposalApproved()
+      }
+      navigate(`/contracts/create?proposalId=${id}`)
+      return
+    }
+
+    // Otherwise, ensure conversion happens first
+    const ready = await ensureProposalConverted()
+    if (!ready) {
+      // Conversion modal is showing, store action to perform after conversion
+      setPendingAction('create-contract')
+      return
+    }
+
+    // After conversion, approve the proposal
+    await ensureProposalApproved()
+
+    // Navigate to contract create with proposal_id
+    navigate(`/contracts/create?proposalId=${id}`)
+  }
+
+  const handleCreateJob = async () => {
+    // If already linked to customer/property, just approve and proceed
+    if (proposal.customer_id && !proposal.lead_id) {
+      // Already linked to customer - just approve if not already approved
+      if (proposal.status !== 'approved') {
+        await ensureProposalApproved()
+      }
+      navigate(`/jobs/create?proposalId=${id}`)
+      return
+    }
+
+    // Otherwise, ensure conversion happens first
+    const ready = await ensureProposalConverted()
+    if (!ready) {
+      // Conversion modal is showing, store action to perform after conversion
+      setPendingAction('create-job')
+      return
+    }
+
+    // After conversion, approve the proposal
+    await ensureProposalApproved()
+
+    // Navigate to job create with proposal_id
+    navigate(`/jobs/create?proposalId=${id}`)
+  }
+
+  const ensureProposalApproved = async () => {
+    if (!id || !proposal) return
+
+    try {
+      // Only update if status is not already approved
+      if (proposal.status !== 'approved') {
+        const { error } = await supabase
+          .from('proposals')
+          .update({ status: 'approved' })
+          .eq('id', id)
+
+        if (error) throw error
+
+        // Log activity
+        await logActivity({
+          activity_type: ActivityTypes.PROPOSAL_UPDATED,
+          entity_type: 'proposal',
+          entity_id: id,
+          description: 'Proposal approved for contract/job creation',
+          metadata: {
+            status: 'approved',
+          },
+        })
+
+        // Refresh proposal data
+        await fetchProposalData()
+      }
+    } catch (error) {
+      console.error('Error updating proposal:', error)
+      alert('Error updating proposal: ' + (error as any).message)
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -336,13 +734,29 @@ export default function ProposalView() {
               <h1 className="text-3xl font-bold text-gray-900">{proposal.title}</h1>
               <p className="text-gray-600 mt-1">Proposal #{proposal.proposal_number}</p>
             </div>
-            <button
-              onClick={() => navigate(`/proposals/edit/${id}`)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <EditIcon className="w-4 h-4" />
-              Edit Proposal
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleCreateContract}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <FileTextIcon className="w-4 h-4" />
+                Convert to Contract
+              </button>
+              <button
+                onClick={handleCreateJob}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                <PlusIcon className="w-4 h-4" />
+                Convert to Job
+              </button>
+              <button
+                onClick={() => navigate(`/proposals/edit/${id}`)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <EditIcon className="w-4 h-4" />
+                Edit Proposal
+              </button>
+            </div>
           </div>
         </div>
 
@@ -432,7 +846,7 @@ export default function ProposalView() {
                       {property
                         ? property.name || property.address || 'N/A'
                         : project
-                        ? `${project.type || 'Project'} - ${project.address || 'N/A'}`
+                        ? project.address || 'N/A'
                         : 'N/A'}
                     </p>
                   </div>
@@ -780,6 +1194,261 @@ export default function ProposalView() {
           </div>
         </div>
       </div>
+
+      {/* Convert Lead to Customer Modal */}
+      {showConvertModal && lead && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-gray-900">Convert Lead to Customer</h3>
+              <button
+                onClick={() => {
+                  setShowConvertModal(false)
+                  setPendingStatus(null)
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>This proposal is about to be approved.</strong> To complete the approval,
+                please confirm the lead conversion:
+              </p>
+              <ul className="list-disc list-inside text-sm text-blue-700 mt-2">
+                <li>Create a new customer record from this lead</li>
+                <li>Create property records from lead projects</li>
+                <li>Mark the lead as "Won"</li>
+                <li>Link the proposal to the new customer</li>
+              </ul>
+            </div>
+
+            <div className="space-y-6">
+              {/* Customer Information */}
+              <div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">Customer Information</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Company Name</label>
+                    <input
+                      type="text"
+                      value={conversionData.company_name}
+                      onChange={(e) => handleConversionFormChange('company_name', e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Contact First Name
+                    </label>
+                    <input
+                      type="text"
+                      value={conversionData.contact_first_name}
+                      onChange={(e) =>
+                        handleConversionFormChange('contact_first_name', e.target.value)
+                      }
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Contact Last Name
+                    </label>
+                    <input
+                      type="text"
+                      value={conversionData.contact_last_name}
+                      onChange={(e) =>
+                        handleConversionFormChange('contact_last_name', e.target.value)
+                      }
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Email</label>
+                    <input
+                      type="email"
+                      value={conversionData.email}
+                      onChange={(e) => handleConversionFormChange('email', e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Phone</label>
+                    <input
+                      type="tel"
+                      value={conversionData.phone}
+                      onChange={(e) => handleConversionFormChange('phone', e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Billing Address
+                    </label>
+                    <input
+                      type="text"
+                      value={conversionData.billing_address}
+                      onChange={(e) =>
+                        handleConversionFormChange('billing_address', e.target.value)
+                      }
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">City</label>
+                    <input
+                      type="text"
+                      value={conversionData.billing_city}
+                      onChange={(e) => handleConversionFormChange('billing_city', e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">State</label>
+                    <input
+                      type="text"
+                      value={conversionData.billing_state}
+                      onChange={(e) => handleConversionFormChange('billing_state', e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Zip Code</label>
+                    <input
+                      type="text"
+                      value={conversionData.billing_zip_code}
+                      onChange={(e) =>
+                        handleConversionFormChange('billing_zip_code', e.target.value)
+                      }
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Properties */}
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="text-lg font-semibold text-gray-900">Properties</h4>
+                  <button
+                    type="button"
+                    onClick={addProperty}
+                    className="flex items-center gap-1 px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    <PlusIcon className="w-4 h-4" />
+                    Add Property
+                  </button>
+                </div>
+
+                {conversionData.properties.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">
+                    No properties. Click "Add Property" to add one.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {conversionData.properties.map((property, index) => (
+                      <div key={index} className="p-4 border border-gray-200 rounded-lg">
+                        <div className="flex justify-between items-center mb-3">
+                          <h5 className="font-medium text-gray-900">Property {index + 1}</h5>
+                          <button
+                            type="button"
+                            onClick={() => removeProperty(index)}
+                            className="text-red-600 hover:text-red-800 text-sm"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Property Name
+                            </label>
+                            <input
+                              type="text"
+                              value={property.name}
+                              onChange={(e) => handlePropertyChange(index, 'name', e.target.value)}
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Address
+                            </label>
+                            <input
+                              type="text"
+                              value={property.address}
+                              onChange={(e) =>
+                                handlePropertyChange(index, 'address', e.target.value)
+                              }
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Property Type
+                            </label>
+                            <input
+                              type="text"
+                              value={property.type}
+                              onChange={(e) => handlePropertyChange(index, 'type', e.target.value)}
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Unit Count
+                            </label>
+                            <input
+                              type="text"
+                              value={property.unit_count}
+                              onChange={(e) =>
+                                handlePropertyChange(index, 'unit_count', e.target.value)
+                              }
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <label className="block text-sm font-medium text-gray-700">Notes</label>
+                            <textarea
+                              value={property.notes}
+                              onChange={(e) => handlePropertyChange(index, 'notes', e.target.value)}
+                              rows={2}
+                              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowConvertModal(false)
+                  setPendingStatus(null)
+                  setStatusValue(proposal.status || 'draft')
+                }}
+                disabled={converting}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmConversion}
+                disabled={converting}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {converting ? 'Converting...' : 'Confirm & Approve Proposal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

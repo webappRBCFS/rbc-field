@@ -750,7 +750,6 @@ export default function ProposalCreate() {
                                         key={project.id || index}
                                         value={project.id || `project-${index}`}
                                       >
-                                        {project.type || 'Project'} -{' '}
                                         {project.address || 'No address'}
                                       </option>
                                     ))}
@@ -861,6 +860,11 @@ export default function ProposalCreate() {
                               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             >
                               <option value="">None - Custom Entry</option>
+                              {serviceItemsGrouped.length === 0 && (
+                                <option value="" disabled>
+                                  No service items available (check console for details)
+                                </option>
+                              )}
                               {serviceItemsGrouped.map((group) => (
                                 <optgroup key={group.category.id} label={group.category.name}>
                                   {group.items.map((serviceItem) => (

@@ -28,6 +28,21 @@ export interface ServiceItemGrouped {
  */
 export async function fetchServiceItemsGrouped(): Promise<ServiceItemGrouped[]> {
   try {
+    // First, try to fetch without join to see if table exists and has data
+    const { data: testData, error: testError } = await supabase
+      .from('service_items')
+      .select('id, name, is_active')
+      .limit(1)
+
+    if (testError) {
+      console.error('Error accessing service_items table:', testError)
+      // Table might not exist - return empty array
+      return []
+    }
+
+    console.log('Service items table accessible. Test data:', testData)
+
+    // Now fetch with join - explicitly specify the foreign key
     const { data, error } = await supabase
       .from('service_items')
       .select(
@@ -39,7 +54,7 @@ export async function fetchServiceItemsGrouped(): Promise<ServiceItemGrouped[]> 
         unit_type,
         base_price,
         is_active,
-        categories:service_categories (
+        categories:service_categories!service_category_id (
           id,
           name
         )
@@ -49,8 +64,52 @@ export async function fetchServiceItemsGrouped(): Promise<ServiceItemGrouped[]> 
       .order('name')
 
     if (error) {
-      console.error('Error fetching service items:', error)
-      throw error
+      console.error('Error fetching service items with join:', error)
+      // Try without join as fallback
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('service_items')
+        .select('id, service_category_id, name, description, unit_type, base_price, is_active')
+        .eq('is_active', true)
+        .order('name')
+
+      if (fallbackError) {
+        console.error('Error fetching service items (fallback):', fallbackError)
+        return []
+      }
+
+      if (!fallbackData || fallbackData.length === 0) {
+        console.warn('No active service items found in database')
+        return []
+      }
+
+      console.log('Using fallback query (without join). Items found:', fallbackData.length)
+      // Process fallback data without category info
+      const fallbackGrouped: ServiceItemGrouped[] = []
+      const uncategorizedItems: ServiceItem[] = []
+
+      fallbackData.forEach((item: any) => {
+        uncategorizedItems.push({
+          id: item.id,
+          service_category_id: item.service_category_id || '',
+          name: item.name,
+          description: item.description,
+          unit_type: item.unit_type,
+          base_price: parseFloat(item.base_price) || 0,
+          is_active: item.is_active,
+        })
+      })
+
+      if (uncategorizedItems.length > 0) {
+        fallbackGrouped.push({
+          category: {
+            id: 'uncategorized',
+            name: 'Uncategorized',
+          },
+          items: uncategorizedItems,
+        })
+      }
+
+      return fallbackGrouped
     }
 
     if (!data) {
@@ -138,7 +197,7 @@ export async function fetchServiceItemById(id: string): Promise<ServiceItem | nu
         unit_type,
         base_price,
         is_active,
-        categories:service_categories (
+        categories:service_categories!service_category_id (
           id,
           name
         )

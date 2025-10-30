@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { PlusIcon, ArrowLeftIcon, TrashIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import ScheduleView from '../components/ScheduleView'
 import { convertLeadToCustomer } from '../lib/leadConversion'
 import { fetchServiceItemsGrouped, ServiceItemGrouped } from '../utils/serviceItems'
@@ -54,6 +54,7 @@ interface ServiceItem {
 
 export function ContractCreate() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [properties, setProperties] = useState<Property[]>([])
@@ -179,7 +180,79 @@ export function ContractCreate() {
   useEffect(() => {
     fetchData()
     fetchServiceItems()
+
+    // Check if proposalId is in URL (from ProposalView/ProposalEdit)
+    const proposalId = searchParams.get('proposalId')
+    if (proposalId) {
+      loadProposalData(proposalId)
+    }
   }, [])
+
+  const loadProposalData = async (proposalId: string) => {
+    try {
+      // Fetch proposal with all related data
+      const { data: proposal, error } = await supabase
+        .from('proposals')
+        .select(`
+          *,
+          customer_id,
+          property_id,
+          proposal_line_items(*)
+        `)
+        .eq('id', proposalId)
+        .single()
+
+      if (error) throw error
+
+      if (proposal) {
+        // Pre-populate form data from proposal
+        setFormData((prev) => ({
+          ...prev,
+          title: proposal.title || '',
+          description: proposal.description || '',
+          template_type: proposal.template_type || '',
+          service_type: proposal.template_type || '',
+          customer_id: proposal.customer_id || '',
+          property_id: proposal.property_id || '',
+          proposal_id: proposalId,
+          total_amount: proposal.total || proposal.total_amount || 0,
+          payment_terms: proposal.payment_terms?.toString() || 'Net 30',
+          notes: proposal.description || '',
+        }))
+
+        // If customer_id is set, fetch properties
+        if (proposal.customer_id) {
+          const { data: props } = await supabase
+            .from('properties')
+            .select('id, name, address, customer_id')
+            .eq('customer_id', proposal.customer_id)
+            .order('name')
+
+          if (props) {
+            setProperties(props)
+          }
+        }
+
+        // Load line items from proposal
+        if (proposal.proposal_line_items && proposal.proposal_line_items.length > 0) {
+          const mappedLineItems = proposal.proposal_line_items.map((item: any, index: number) => ({
+            id: item.id || `line_item_${Date.now()}_${index}`,
+            service_item_id: item.service_item_id || undefined,
+            description: item.description || '',
+            quantity: item.quantity || 1,
+            unit_type: item.unit_type || 'flat_rate',
+            unit_price: item.unit_price || 0,
+            total_price: item.total_price || 0,
+            sort_order: item.sort_order || index,
+          }))
+          setLineItems(mappedLineItems.length > 0 ? mappedLineItems : lineItems)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading proposal data:', error)
+      alert('Error loading proposal data: ' + (error as any).message)
+    }
+  }
 
   const fetchServiceItems = async () => {
     const items = await fetchServiceItemsGrouped()

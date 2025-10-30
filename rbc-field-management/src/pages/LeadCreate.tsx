@@ -18,7 +18,9 @@ interface UserProfile {
 
 interface Contact {
   id: string
-  name: string
+  first_name: string
+  last_name: string
+  name?: string // Keep for backwards compatibility
   phone: string
   extension?: string
   cell: string
@@ -64,7 +66,7 @@ export default function LeadCreate() {
 
   // Contact Information (array of contacts)
   const [contacts, setContacts] = useState<Contact[]>([
-    { id: '1', name: '', phone: '', extension: '', cell: '', email: '' },
+    { id: '1', first_name: '', last_name: '', phone: '', extension: '', cell: '', email: '' },
   ])
 
   // Projects (array of projects)
@@ -147,7 +149,8 @@ export default function LeadCreate() {
   const addContact = () => {
     const newContact: Contact = {
       id: Date.now().toString(),
-      name: '',
+      first_name: '',
+      last_name: '',
       phone: '',
       extension: '',
       cell: '',
@@ -306,13 +309,13 @@ export default function LeadCreate() {
         ...insertData,
 
         // Contact Information (primary contact in legacy fields)
-        contact_first_name: primaryContact?.name || '',
-        contact_last_name: '',
+        contact_first_name: primaryContact?.first_name || primaryContact?.name?.split(' ')[0] || '',
+        contact_last_name: primaryContact?.last_name || primaryContact?.name?.split(' ').slice(1).join(' ') || '',
         phone: primaryContact?.phone || null,
         email: primaryContact?.email || null,
 
         // New Structured Data Fields
-        contacts: contacts.length > 0 && contacts[0].name ? contacts : [],
+        contacts: contacts.length > 0 && (contacts[0].first_name || contacts[0].last_name || contacts[0].name) ? contacts : [],
         projects: projects.length > 0 && projects[0].type ? projects : [],
         lead_notes: leadNotes.length > 0 ? leadNotes : [],
 
@@ -583,13 +586,25 @@ export default function LeadCreate() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Name *
+                              First Name *
                             </label>
                             <input
                               type="text"
                               required={index === 0}
-                              value={contact.name}
-                              onChange={(e) => updateContact(contact.id, 'name', e.target.value)}
+                              value={contact.first_name}
+                              onChange={(e) => updateContact(contact.id, 'first_name', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Last Name *
+                            </label>
+                            <input
+                              type="text"
+                              required={index === 0}
+                              value={contact.last_name}
+                              onChange={(e) => updateContact(contact.id, 'last_name', e.target.value)}
                               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                           </div>

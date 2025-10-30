@@ -32,10 +32,24 @@ export async function convertLeadToCustomer(leadId: string) {
     // 3. Create customer from lead data
     const primaryContact = lead.contacts && lead.contacts[0] ? lead.contacts[0] : null
 
+    // Handle backwards compatibility: if contact has 'name' but not first_name/last_name, split it
+    let contactFirstName = ''
+    let contactLastName = ''
+    if (primaryContact) {
+      if (primaryContact.first_name || primaryContact.last_name) {
+        contactFirstName = primaryContact.first_name || ''
+        contactLastName = primaryContact.last_name || ''
+      } else if (primaryContact.name) {
+        const nameParts = primaryContact.name.trim().split(' ')
+        contactFirstName = nameParts[0] || ''
+        contactLastName = nameParts.slice(1).join(' ') || ''
+      }
+    }
+
     const customerData: any = {
       company_name: lead.company_name || null,
-      contact_first_name: primaryContact?.name || lead.contact_first_name || '',
-      contact_last_name: lead.contact_last_name || '',
+      contact_first_name: contactFirstName || lead.contact_first_name || '',
+      contact_last_name: contactLastName || lead.contact_last_name || '',
       email: primaryContact?.email || lead.email || null,
       phone: primaryContact?.phone || lead.phone || null,
       billing_address: lead.company_address || lead.address || null,
